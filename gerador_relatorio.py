@@ -5,8 +5,9 @@ Versão: 1.1 (Corrigido)
 
 import pandas as pd
 from docx import Document
-from docx.shared import Pt, RGBColor, Inches
+from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from datetime import datetime
@@ -20,7 +21,7 @@ class Config:
     """Configurações do relatório"""
     
     # Arquivo de entrada
-    ARQUIVO_EXCEL = 'teste_integração.xlsx'  # Nome do seu arquivo Excel
+    ARQUIVO_EXCEL = 'exports/teste_integração.xlsx'  # Nome do seu arquivo Excel
     NOME_ABA = None  # Nome da aba (ou deixe None para a primeira)
     
     # Arquivo de saída
@@ -43,10 +44,12 @@ class Config:
     
     # Cores (RGB) - Formato correto: (R, G, B)
     CORES = {
-        'CABECALHO_MACRO': (255, 107, 53),      # Laranja
-        'CABECALHO_TABELA': (78, 205, 196),     # Azul claro
+        'CABECALHO_MACRO': (239, 108, 33),      # Laranja forte
+        'CABECALHO_TABELA': (250, 191, 143),    # Laranja claro
         'TEXTO_BRANCO': (255, 255, 255),
-        'BORDA_TABELA': (149, 165, 166)         # Cinza
+        'TEXTO_PRETO': (0, 0, 0),
+        'BORDA_TABELA': (166, 166, 166),        # Cinza para bordas
+        'INICIATIVA_FUNDO': (250, 191, 143)     # Laranja claro para iniciativa
     }
     
     # Formatação
@@ -127,6 +130,29 @@ def set_cell_background(cell, rgb_tuple):
     cell._element.get_or_add_tcPr().append(shading_elm)
 
 
+def set_cell_border(cell, **kwargs):
+    """Define bordas para células da tabela"""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    
+    # Remover bordas antigas se existirem
+    tcBorders = tcPr.find(qn('w:tcBorders'))
+    if tcBorders is not None:
+        tcPr.remove(tcBorders)
+    
+    tcBorders = OxmlElement('w:tcBorders')
+    for edge in ('top', 'left', 'bottom', 'right'):
+        if kwargs.get(edge):
+            edge_el = OxmlElement(f'w:{edge}')
+            edge_el.set(qn('w:val'), 'single')
+            edge_el.set(qn('w:sz'), '2')  # 2 = 1/4pt (sz é em oitavos de ponto)
+            edge_el.set(qn('w:space'), '0')
+            edge_el.set(qn('w:color'), rgb_to_hex(Config.CORES['BORDA_TABELA']))
+            tcBorders.append(edge_el)
+    
+    tcPr.append(tcBorders)
+
+
 def set_paragraph_background(paragraph, rgb_tuple):
     """Define cor de fundo de um parágrafo"""
     shading_elm = OxmlElement('w:shd')
@@ -142,9 +168,12 @@ def criar_documento():
     """Cria documento Word base"""
     doc = Document()
     
-    # Configurar margens
+    # Configurar margens e orientação
     sections = doc.sections
     for section in sections:
+        section.orientation = WD_ORIENT.LANDSCAPE
+        section.page_width = Inches(11)
+        section.page_height = Inches(8.5)
         section.top_margin = Inches(0.8)
         section.bottom_margin = Inches(0.8)
         section.left_margin = Inches(1.0)
@@ -202,37 +231,70 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
     if not primeira_secao:
         doc.add_page_break()
     
-    # Título do Macrodesafio
-    titulo = doc.add_paragraph()
-    titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    titulo_run = titulo.add_run(macrodesafio.upper())
-    titulo_run.font.size = Pt(14)
-    titulo_run.font.name = Config.FONTE_PADRAO
-    titulo_run.font.color.rgb = RGBColor(*Config.CORES['TEXTO_BRANCO'])
-    titulo_run.bold = True
+    # Título do Macrodesafio usando tabela para controlar largura
+    titulo_tabela = doc.add_table(rows=1, cols=1)
+    titulo_tabela.style = None
+    titulo_cell = titulo_tabela.rows[0].cells[0]
+    titulo_cell.text = macrodesafio.upper()
     
-    # Cor de fundo do título
-    set_paragraph_background(titulo, Config.CORES['CABECALHO_MACRO'])
+    # Formatação do título
+    for paragraph in titulo_cell.paragraphs:
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        paragraph.paragraph_format.space_before = Pt(5)
+        paragraph.paragraph_format.space_after = Pt(5)
+        for run in paragraph.runs:
+            run.font.size = Pt(10)
+            run.font.name = Config.FONTE_PADRAO
+            run.font.color.rgb = RGBColor(*Config.CORES['TEXTO_BRANCO'])
+            run.font.bold = True
     
-    doc.add_paragraph()
+    # Cor de fundo e alinhamento vertical
+    set_cell_background(titulo_cell, Config.CORES['CABECALHO_MACRO'])
+    from docx.enum.table import WD_ALIGN_VERTICAL
+    titulo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     
-    # Criar tabela
-    adicionar_tabela_indicadores(doc, df_grupo)
+    # Remover bordas
+    set_cell_border(titulo_cell, top=False, bottom=False, left=False, right=False)
     
-    doc.add_paragraph()
+    # Definir largura igual à soma das colunas da tabela de dados
+    # Calculando a soma total das larguras (será calculada dinamicamente)
+    largura_total_tabela = Cm(9.09 + 2.28 + 2.1 + 1.97 + 2.18 + 0.72)  # Sem indicador
+    # Adicionar espaço para indicador (será ajustado automaticamente)
+    titulo_tabela.rows[0].cells[0].width = largura_total_tabela + Cm(7)  # Aproximação para indicador
+    
+    # Processar cada indicador individualmente
+    for idx, (_, row) in enumerate(df_grupo.iterrows()):
+        # Criar tabela para este indicador
+        adicionar_tabela_indicador(doc, row)
+        
+        # Adicionar informação complementar se existir
+        info_complementar = row.get(Config.COLUNAS['INFO_COMPLEMENTAR'], '')
+        if pd.notna(info_complementar) and str(info_complementar).strip() != '':
+            situacao = doc.add_paragraph()
+            situacao_run = situacao.add_run(f'Situação: ')
+            situacao_run.font.bold = True
+            situacao_run.font.size = Pt(10)
+            situacao_run.font.name = Config.FONTE_PADRAO
+            
+            texto_run = situacao.add_run(str(info_complementar))
+            texto_run.font.size = Pt(10)
+            texto_run.font.name = Config.FONTE_PADRAO
+            situacao.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        
+        doc.add_paragraph()  # Espaçamento entre indicadores
 
 
-def adicionar_tabela_indicadores(doc, df_grupo):
-    """Adiciona tabela com indicadores"""
+def adicionar_tabela_indicador(doc, row):
+    """Adiciona tabela com um único indicador"""
     
-    # Criar tabela (1 cabeçalho + linhas de dados)
-    num_linhas = len(df_grupo) + 1
-    num_colunas = 6
+    # Criar tabela (1 cabeçalho + 1 linha de dados)
+    num_linhas = 2
+    num_colunas = 7  # Incluindo coluna de indicador visual
     tabela = doc.add_table(rows=num_linhas, cols=num_colunas)
-    tabela.style = 'Light Grid Accent 1'
+    tabela.style = None  # Remover estilo padrão para controle total
     
     # Cabeçalhos
-    headers = ['INDICADOR', 'META', 'UNIDADE RESPONSÁVEL', 'POLARIDADE', 'RESULTADO APURADO', 'INICIATIVA(S)']
+    headers = ['INDICADOR', 'META', 'UNIDADE RESPONSÁVEL', 'POLARIDADE', 'RESULTADO APURADO', 'INICIATIVA(S)', '●']
     header_cells = tabela.rows[0].cells
     
     for i, header in enumerate(headers):
@@ -241,48 +303,100 @@ def adicionar_tabela_indicadores(doc, df_grupo):
         
         # Formatação do cabeçalho
         for paragraph in cell.paragraphs:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER  # Centro horizontal
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(0)
             for run in paragraph.runs:
                 run.font.bold = True
-                run.font.size = Pt(10)
+                run.font.size = Pt(9)
                 run.font.name = Config.FONTE_PADRAO
-                run.font.color.rgb = RGBColor(*Config.CORES['TEXTO_BRANCO'])
+                run.font.color.rgb = RGBColor(*Config.CORES['TEXTO_PRETO'])
+        
+        from docx.enum.table import WD_ALIGN_VERTICAL
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER  # Centro vertical
         
         # Cor de fundo
         set_cell_background(cell, Config.CORES['CABECALHO_TABELA'])
+        
+        # Adicionar bordas brancas
+        set_cell_border(cell, top=True, bottom=True, left=True, right=True)
     
-    # Preencher dados
-    for idx, (_, row) in enumerate(df_grupo.iterrows(), start=1):
-        cells = tabela.rows[idx].cells
+    # Preencher dados (apenas uma linha)
+    cells = tabela.rows[1].cells
+    
+    # Dados
+    dados = [
+        formatar_valor(row.get(Config.COLUNAS['INDICADOR'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['METAKEY'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['UNIDADE_GESTORA'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['POLARIDADE'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['VALOR_APURADO'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['INICIATIVA'], '-')),
+        '●'  # Indicador visual
+    ]
+    
+    for i, dado in enumerate(dados):
+        cell = cells[i]
+        cell.text = dado
         
-        # Dados
-        dados = [
-            formatar_valor(row.get(Config.COLUNAS['INDICADOR'], '-')),
-            formatar_valor(row.get(Config.COLUNAS['METAKEY'], '-')),
-            formatar_valor(row.get(Config.COLUNAS['UNIDADE_GESTORA'], '-')),
-            formatar_valor(row.get(Config.COLUNAS['POLARIDADE'], '-')),
-            formatar_valor(row.get(Config.COLUNAS['VALOR_APURADO'], '-')),
-            formatar_valor(row.get(Config.COLUNAS['INICIATIVA'], '-'))
-        ]
-        
-        for i, dado in enumerate(dados):
-            cell = cells[i]
-            cell.text = dado
+        # Formatação do texto
+        for paragraph in cell.paragraphs:
+            # Alinhamento
+            if i in [3, 4, 6]:  # Polaridade, Resultado, Indicador visual
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            else:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
             
-            # Formatação do texto
+            for run in paragraph.runs:
+                run.font.size = Pt(Config.TAMANHO_TABELA)
+                run.font.name = Config.FONTE_PADRAO
+                
+                # Destacar resultado apurado
+                if i == 4:  # Coluna de Resultado Apurado
+                    run.font.bold = True
+                
+                # Bolinha verde no indicador visual
+                if i == 6:
+                    run.font.color.rgb = RGBColor(0, 255, 0)  # Verde
+                    run.font.size = Pt(16)
+        
+        # Cor de fundo para coluna Iniciativa
+        if i == 5:
+            set_cell_background(cell, Config.CORES['INICIATIVA_FUNDO'])
+            # Texto preto no fundo laranja claro
             for paragraph in cell.paragraphs:
                 for run in paragraph.runs:
-                    run.font.size = Pt(Config.TAMANHO_TABELA)
-                    run.font.name = Config.FONTE_PADRAO
-                    
-                    # Destacar resultado apurado
-                    if i == 4:  # Coluna de Resultado Apurado
-                        run.font.bold = True
+                    run.font.color.rgb = RGBColor(*Config.CORES['TEXTO_PRETO'])
+        
+        from docx.enum.table import WD_ALIGN_VERTICAL
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER  # Centro vertical
+        
+        # Adicionar bordas brancas
+        set_cell_border(cell, top=True, bottom=True, left=True, right=True)
     
-    # Ajustar largura das colunas
-    larguras = [Inches(2.2), Inches(1.8), Inches(1.2), Inches(1.0), Inches(1.0), Inches(1.0)]
+    # Ajustar largura das colunas (em centímetros)
+    # Largura mínima de 1,3cm para todas
+    larguras = [
+        None,        # INDICADOR - não alterável (automática)
+        Cm(9.09),    # META
+        Cm(2.28),    # UNIDADE RESPONSÁVEL
+        Cm(2.1),     # POLARIDADE
+        Cm(1.97),    # RESULTADO APURADO
+        Cm(2.18),    # INICIATIVA(S)
+        Cm(0.72)     # ●
+    ]
+    
+    # Calcular largura do Indicador baseado no espaço restante
+    # Largura total da página em paisagem (11" - margens) ≈ 9" = 22.86 cm
+    largura_total = Cm(25.4)  # Largura disponível aproximada
+    largura_outras = sum([l for l in larguras if l is not None])
+    largura_indicador = largura_total - largura_outras
+    larguras[0] = max(largura_indicador, Cm(1.3))  # Mínimo de 1,3cm
+    
     for row in tabela.rows:
         for idx, width in enumerate(larguras):
-            row.cells[idx].width = width
+            if width:
+                row.cells[idx].width = width
 
 
 # ============================================
@@ -314,11 +428,12 @@ def gerar_relatorio():
     # 5. Adicionar cabeçalho do relatório
     adicionar_cabecalho_relatorio(doc)
     
-    # 6. Adicionar cada Macrodesafio
+    # 6. Adicionar cada Macrodesafio (APENAS PRIMEIRO PARA TESTE)
     print("✍️  Gerando seções do relatório...")
     for idx, (macrodesafio, df_grupo) in enumerate(grupos):
         print(f"   → {macrodesafio} ({len(df_grupo)} registros)")
         adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=(idx==0))
+        break  # TESTAR APENAS PRIMEIRO MACRODESAFIO
     
     # 7. Salvar documento
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
