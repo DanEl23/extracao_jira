@@ -7,6 +7,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 from datetime import datetime
 import pandas as pd
+from selenium.common.exceptions import TimeoutException
 
 class AutomacaoPainelCNJ:
     def __init__(self):
@@ -80,19 +81,25 @@ class AutomacaoPainelCNJ:
         print(f"--- Filtrando '{nome_interno_filtro}' para '{valor_desejado}' ---")
         try:
             dropdown_xpath = f"//div[@class='slicer-dropdown-menu' and @aria-label='{nome_interno_filtro}']"
+            # Espera o dropdown estar presente
             dropdown = self.wait.until(EC.presence_of_element_located((By.XPATH, dropdown_xpath)))
             
+            # Scroll to center and wait for clickability
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown)
+            self.wait.until(EC.element_to_be_clickable((By.XPATH, dropdown_xpath)))
             time.sleep(1)
             
+            # Clica no dropdown para abrir
             self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", dropdown)
             time.sleep(1.5)
 
+            # Seleciona a opção
             opcao_xpath = f"//div[@class='slicerItemContainer']//span[@title='{valor_desejado}' or text()='{valor_desejado}']"
             opcao = self.wait.until(EC.element_to_be_clickable((By.XPATH, opcao_xpath)))
             self.driver.execute_script("arguments[0].click();", opcao)
             print(f"✅ Opção '{valor_desejado}' selecionada!")
             
+            # Fecha o dropdown
             self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", dropdown)
             time.sleep(2)
             
@@ -140,7 +147,7 @@ class AutomacaoPainelCNJ:
         else:
             print("⚠️ Nenhum gráfico encontrado.")
 
-    # --- FUNÇÃO KPI GENERALIZADA (META 3 e 5) ---
+    # --- FUNÇÃO KPI GENERALIZADA (META 3, 5, 6) ---
     def extrair_kpi_cumprimento(self, numero_meta, kpi_title):
         """Extrai KPI de cartão único com base no título fornecido."""
         print(f"\n--- Iniciando Extração KPI (Alvo: Meta {numero_meta}) ---")
@@ -158,9 +165,7 @@ class AutomacaoPainelCNJ:
 
     # --- FUNÇÃO META 4 (Coleta Múltipla por Título e Label) ---
     def extrair_kpis_meta_4(self):
-        """Coleta dois KPIs de Cumprimento por nome do visual (Meta 4 e Meta 4 Improb. Administrativa)"""
         print(f"\n--- Iniciando Extração KPI (Alvo: Meta 4) ---")
-        
         meta_titulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="4")
         print(f"📌 Meta Identificada: {meta_titulo}")
         
@@ -169,29 +174,130 @@ class AutomacaoPainelCNJ:
             try:
                 xpath_container = f"//div[@title='{container_title}']/ancestor::transform[1]"
                 container = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_container)))
-                
                 xpath_value = f".//h4[contains(text(), '{label_nome}')]/following-sibling::p[contains(@class, 'bottom')]"
                 valor_elem = container.find_element(By.XPATH, xpath_value)
                 valor = valor_elem.text.strip()
-
                 if valor:
                     print(f"💎 {campo_nome_saida} encontrado: {valor}")
                     self.adicionar_linha(meta_titulo, meta_descricao, campo_nome_saida, valor)
                     return True
-                else:
-                    print(f"⚠️ Valor para {campo_nome_saida} encontrado, mas está vazio.")
-                    return False
-
+                else: return False
             except Exception as e:
                 print(f"⚠️ Erro ao buscar {campo_nome_saida} no container '{container_title}'.")
                 return False
 
-        # 1. Total Real: Visua Principal (title="Meta 4"), Label é 'Cumprimento'
         extrair_valor_do_cartao("Meta 4", "Cumprimento", "Total Real")
-
-        # 2. Total Submeta: Visual de Improbidade (title="Meta 4 Improb. Administrativa"), Label é 'Cumprimento'
         extrair_valor_do_cartao("Meta 4 Improb. Administrativa", "Cumprimento", "Total Submeta")
 
+    # --- FUNÇÃO META 6 (Extração por Background SVG) ---
+    def extrair_kpi_meta_6(self):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 6) ---")
+        meta_titulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="6")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        print("🔍 Buscando cartão pelo background SVG...")
+        try:
+            xpath_bg = "//*[local-name()='path' and @data-sub-selection-display-name='Card_Background_Color']"
+            backgrounds = self.wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_bg)))
+            valor_encontrado = None
+            for bg in backgrounds:
+                try:
+                    container = bg.find_element(By.XPATH, "./ancestor::visual-modern[1]")
+                    texto_container = container.text
+                    if "Cumprimento" in texto_container:
+                        try:
+                            valor_encontrado = container.find_element(By.CSS_SELECTOR, "p.content").text.strip()
+                        except:
+                            valor_encontrado = container.find_element(By.CSS_SELECTOR, "text.value").text.strip()
+                        if valor_encontrado: break
+                except: continue
+            
+            if valor_encontrado:
+                print(f"💎 Valor encontrado: {valor_encontrado}")
+                self.adicionar_linha(meta_titulo, meta_descricao, "Total", valor_encontrado)
+            else:
+                print("❌ Erro: Cartão 'Cumprimento' não encontrado ou valor vazio.")
+        except Exception as e:
+            print(f"❌ Erro grave ao extrair Meta 6: {e}")
+
+    # --- FUNÇÃO META 7 (Similar a Meta 4) ---
+    def extrair_kpis_meta_7(self):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 7) ---")
+        meta_titulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="7")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
+            print(f"  -> Buscando container: '{container_title}' para o campo '{campo_nome_saida}'")
+            try:
+                xpath_container = f"//div[@title='{container_title}']/ancestor::transform[1]"
+                container = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_container)))
+                xpath_value = f".//h4[contains(text(), '{label_nome}')]/following-sibling::p[contains(@class, 'bottom')]"
+                valor_elem = container.find_element(By.XPATH, xpath_value)
+                valor = valor_elem.text.strip()
+                if valor:
+                    print(f"💎 {campo_nome_saida} encontrado: {valor}")
+                    self.adicionar_linha(meta_titulo, meta_descricao, campo_nome_saida, valor)
+                    return True
+                else: return False
+            except Exception as e:
+                print(f"⚠️ Erro ao buscar {campo_nome_saida} no container '{container_title}'.")
+                return False
+
+        extrair_valor_do_cartao("Meta 7 Indígenas", "Cumprimento", "Total Indígenas")
+        extrair_valor_do_cartao("Meta 7 Quilombola", "Cumprimento", "Total Quilombola")
+
+    # --- FUNÇÃO META 8 (Reutiliza lógica Meta 7/4) ---
+    def extrair_kpis_meta_8(self):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 8) ---")
+        meta_titulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="8")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
+            print(f"  -> Buscando container: '{container_title}' para o campo '{campo_nome_saida}'")
+            try:
+                xpath_container = f"//div[@title='{container_title}']/ancestor::transform[1]"
+                container = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_container)))
+                xpath_value = f".//h4[contains(text(), '{label_nome}')]/following-sibling::p[contains(@class, 'bottom')]"
+                valor_elem = container.find_element(By.XPATH, xpath_value)
+                valor = valor_elem.text.strip()
+                if valor:
+                    print(f"💎 {campo_nome_saida} encontrado: {valor}")
+                    self.adicionar_linha(meta_titulo, meta_descricao, campo_nome_saida, valor)
+                    return True
+                else: return False
+            except Exception as e:
+                print(f"⚠️ Erro ao buscar {campo_nome_saida} no container '{container_title}'.")
+                return False
+
+        extrair_valor_do_cartao("Violência Doméstica", "Cumprimento", "Total Violência Doméstica")
+        extrair_valor_do_cartao("Feminicídio", "Cumprimento", "Total Feminicídio")
+
+    # --- NOVA FUNÇÃO META 10 (Reutiliza lógica) ---
+    def extrair_kpis_meta_10(self):
+        """Coleta KPIs da Meta 10 (1º Grau e 2º Grau)"""
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 10) ---")
+        meta_titulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="10")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
+            print(f"  -> Buscando container: '{container_title}' para o campo '{campo_nome_saida}'")
+            try:
+                xpath_container = f"//div[@title='{container_title}']/ancestor::transform[1]"
+                container = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_container)))
+                xpath_value = f".//h4[contains(text(), '{label_nome}')]/following-sibling::p[contains(@class, 'bottom')]"
+                valor_elem = container.find_element(By.XPATH, xpath_value)
+                valor = valor_elem.text.strip()
+                if valor:
+                    print(f"💎 {campo_nome_saida} encontrado: {valor}")
+                    self.adicionar_linha(meta_titulo, meta_descricao, campo_nome_saida, valor)
+                    return True
+                else: return False
+            except Exception as e:
+                print(f"⚠️ Erro ao buscar {campo_nome_saida} no container '{container_title}'.")
+                return False
+
+        extrair_valor_do_cartao("1º Grau", "Cumprimento", "Total 1º Grau")
+        extrair_valor_do_cartao("2º Grau", "Cumprimento", "Total 2º Grau")
 
     def _identificar_titulo_descricao(self, numero_meta_esperada):
         meta_titulo = "N/D"
@@ -269,14 +375,12 @@ class AutomacaoPainelCNJ:
         if not self.clicar_elemento_por_texto("Meta 3"):
             print("⚠️ Navegação por texto falhou.")
         self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
-        # KPI: Título "Percentual de Cumprimento"
         self.extrair_kpi_cumprimento(numero_meta="3", kpi_title="Percentual de Cumprimento")
         
         # === META 4 ===
         print("\n=== 🏁 INICIANDO META 4 ===")
         if not self.clicar_elemento_por_texto("Meta 4"):
             print("⚠️ Navegação por texto falhou.")
-
         self.clicar_botao_laranja_estadual(indice_alvo=1)
         self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
         self.extrair_kpis_meta_4()
@@ -285,13 +389,61 @@ class AutomacaoPainelCNJ:
         print("\n=== 🏁 INICIANDO META 5 ===")
         if not self.clicar_elemento_por_texto("Meta 5"):
             print("⚠️ Navegação por texto falhou.")
-        
-        # Botão Laranja: Posição 2 (Índice 1)
-        self.clicar_botao_laranja_estadual(indice_alvo=1)
-        self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
-        
-        # KPI: Título "Cumprimento Meta 5"
+        self.clicar_botao_laranja_estadual(indice_alvo=2)
+        self.aplicar_filtro_powerbi("Tribunal", "TJMG")
         self.extrair_kpi_cumprimento(numero_meta="5", kpi_title="Cumprimento Meta 5")
+        
+        # === META 6 ===
+        print("\n=== 🏁 INICIANDO META 6 ===")
+        if not self.clicar_elemento_por_texto("Meta 6"):
+            print("⚠️ Navegação por texto falhou.")
+        self.clicar_botao_laranja_estadual(indice_alvo=1)
+        try:
+             self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+        except:
+             print("⚠️ Filtro padrão falhou, tentando 'Tribunal'...")
+             self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+        self.extrair_kpi_meta_6()
+        
+        # === META 7 ===
+        print("\n=== 🏁 INICIANDO META 7 ===")
+        if not self.clicar_elemento_por_texto("Meta 7"):
+            print("⚠️ Navegação por texto falhou.")
+        self.clicar_botao_laranja_estadual(indice_alvo=1)
+        try:
+             self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+        except:
+             print("⚠️ Filtro padrão falhou, tentando 'Tribunal'...")
+             self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+        self.extrair_kpis_meta_7()
+        
+        # === META 8 ===
+        print("\n=== 🏁 INICIANDO META 8 ===")
+        if not self.clicar_elemento_por_texto("Meta 8"):
+            print("⚠️ Navegação por texto falhou.")
+        self.clicar_botao_laranja_estadual(indice_alvo=1)
+        try:
+             self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+        except:
+             print("⚠️ Filtro padrão falhou, tentando 'Tribunal'...")
+             self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+        self.extrair_kpis_meta_8()
+        
+        # === META 10 ===
+        print("\n=== 🏁 INICIANDO META 10 ===")
+        if not self.clicar_elemento_por_texto("Meta 10"):
+            print("⚠️ Navegação por texto falhou.")
+        
+        # Botão Laranja: Posição 1 (Índice 0)
+        self.clicar_botao_laranja_estadual(indice_alvo=1)
+        
+        try:
+             self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+        except:
+             print("⚠️ Filtro padrão falhou, tentando 'Tribunal'...")
+             self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+             
+        self.extrair_kpis_meta_10()
         
         print("\n⏸️ Processo finalizado.")
         self.salvar_excel()
