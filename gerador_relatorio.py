@@ -38,6 +38,7 @@ class Config:
         'UNIDADE_GESTORA': 'Unidade Gestora',
         'POLARIDADE': 'Polaridade',
         'VALOR_APURADO': 'Valor Apurado',
+        'VALOR_META': 'Valor da Meta',
         'INICIATIVA': 'Iniciativa',
         'INFO_COMPLEMENTAR': 'Informação complementar texto'
     }
@@ -322,7 +323,7 @@ def criar_documento(superintendencia='Presidência'):
         
         # Cabeçalho e rodapé
         section.header_distance = Cm(1.05)
-        section.footer_distance = Cm(1.05)
+        section.footer_distance = Cm(0)
         
         # Adicionar conteúdo no cabeçalho
         header = section.header
@@ -750,6 +751,50 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
         formatar_valor(row.get(Config.COLUNAS['INICIATIVA'], '-'))
     ]
     
+    # Determinar cor do indicador visual baseado no atingimento da meta
+    valor_apurado = row.get(Config.COLUNAS['VALOR_APURADO'], None)
+    valor_meta = row.get(Config.COLUNAS['VALOR_META'], None)
+    
+    # Debug: imprimir valores para primeira meta
+    meta_key = row.get(Config.COLUNAS['METAKEY'], '')
+    if 'TJMG 111' in str(meta_key):
+        print(f"\n🔍 DEBUG TJMG 111:")
+        print(f"   Meta Key: {meta_key}")
+        print(f"   Valor Apurado (raw): {repr(valor_apurado)} | Tipo: {type(valor_apurado)}")
+        print(f"   Valor Meta (raw): {repr(valor_meta)} | Tipo: {type(valor_meta)}")
+        print(f"   pd.notna(valor_apurado): {pd.notna(valor_apurado)}")
+        print(f"   pd.notna(valor_meta): {pd.notna(valor_meta)}")
+    
+    # Verde se atingiu a meta, vermelho caso contrário
+    cor_indicador = RGBColor(0, 255, 0)  # Verde (padrão)
+    if pd.notna(valor_apurado) and pd.notna(valor_meta):
+        try:
+            # Converter valor apurado (pode estar como string com vírgula)
+            if isinstance(valor_apurado, str):
+                val_apurado_float = float(valor_apurado.replace('.', '').replace(',', '.'))
+            else:
+                val_apurado_float = float(valor_apurado)
+            
+            # Converter valor da meta
+            val_meta_float = float(valor_meta)
+            
+            if 'TJMG 111' in str(meta_key):
+                print(f"   Valor Apurado (float): {val_apurado_float}")
+                print(f"   Valor Meta (float): {val_meta_float}")
+                print(f"   Comparação: {val_apurado_float} < {val_meta_float} = {val_apurado_float < val_meta_float}")
+            
+            if val_apurado_float < val_meta_float:
+                cor_indicador = RGBColor(255, 0, 0)  # Vermelho
+                if 'TJMG 111' in str(meta_key):
+                    print(f"   ✅ Cor definida: VERMELHO")
+            else:
+                if 'TJMG 111' in str(meta_key):
+                    print(f"   ✅ Cor definida: VERDE")
+        except (ValueError, TypeError) as e:
+            if 'TJMG 111' in str(meta_key):
+                print(f"   ❌ Erro na conversão: {e}")
+            pass  # Mantém verde se não conseguir converter
+    
     for i, dado in enumerate(dados):
         cell = cells[i]
         
@@ -847,9 +892,9 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
                 if i == 4:  # Coluna de Resultado Apurado
                     run.font.bold = True
                 
-                # Bolinha verde no indicador visual
+                # Cor do indicador visual (verde ou vermelho baseado no atingimento da meta)
                 if i == 5:  # Coluna ●
-                    run.font.color.rgb = RGBColor(0, 255, 0)  # Verde
+                    run.font.color.rgb = cor_indicador
                     run.font.size = Pt(16)
         
         # Remover cor de fundo para coluna Iniciativa (agora é a coluna 6)
