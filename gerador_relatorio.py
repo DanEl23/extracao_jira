@@ -7,7 +7,7 @@ import pandas as pd
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.section import WD_ORIENT
+from docx.enum.section import WD_ORIENT, WD_SECTION
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from datetime import datetime
@@ -97,12 +97,124 @@ def carregar_dados():
         return None
 
 
+def carregar_mapeamento_superintendencias():
+    """Carrega mapeamento de metas para superintendências"""
+    import json
+    try:
+        with open('meta_por_superintendencia.json', 'r', encoding='utf-8') as f:
+            mapeamento = json.load(f)
+        print(f"✅ Mapeamento de superintendências carregado ({len(mapeamento)} metas).")
+        return mapeamento
+    except FileNotFoundError:
+        print("❌ ERRO: Arquivo 'meta_por_superintendencia.json' não encontrado!")
+        return {}
+    except Exception as e:
+        print(f"❌ ERRO ao carregar mapeamento: {e}")
+        return {}
+
+
+def extrair_codigo_meta(meta_texto):
+    """Extrai código da meta (ex: 'TJMG 111 - Texto' -> 'TJMG 111')"""
+    import re
+    # Procurar padrão: letras maiúsculas seguidas de espaço e números
+    match = re.match(r'^([A-Z]+\s+\d+)', str(meta_texto).strip())
+    if match:
+        return match.group(1)
+    return None
+
+
+def adicionar_coluna_superintendencia(df, mapeamento):
+    """Adiciona coluna de superintendência ao DataFrame baseado no mapeamento"""
+    print("\n🔍 Verificando mapeamento de superintendências...")
+    
+    def obter_superintendencia(meta):
+        codigo = extrair_codigo_meta(meta)
+        
+        # Debug: imprimir primeiras 10 linhas para verificar
+        if hasattr(obter_superintendencia, 'contador'):
+            obter_superintendencia.contador += 1
+        else:
+            obter_superintendencia.contador = 1
+        
+        if obter_superintendencia.contador <= 10:
+            resultado = mapeamento.get(codigo, 'SEM CLASSIFICAÇÃO') if codigo else 'SEM CLASSIFICAÇÃO'
+            print(f"   Linha {obter_superintendencia.contador}: Meta='{str(meta)[:50]}...' | Código='{codigo}' | Superintendência='{resultado}'")
+        
+        if codigo:
+            # Normalizar para maiúsculas para evitar divergências
+            superintendencia = mapeamento.get(codigo, 'SEM CLASSIFICAÇÃO')
+            return superintendencia.upper() if superintendencia != 'SEM CLASSIFICAÇÃO' else superintendencia
+        return 'SEM CLASSIFICAÇÃO'
+    
+    df['Superintendência'] = df[Config.COLUNAS['METAKEY']].apply(obter_superintendencia)
+    
+    # Estatísticas de classificação
+    classificacao_counts = df['Superintendência'].value_counts()
+    print(f"\n📊 Estatísticas de classificação:")
+    for super_nome, count in classificacao_counts.items():
+        print(f"   {super_nome}: {count} registros")
+    
+    return df
+
+
+def agrupar_por_superintendencia_e_macro(df):
+    """Agrupa dados primeiro por Superintendência, depois por Macrodesafio"""
+    print("📊 Agrupando dados por Superintendência e Macrodesafio...")
+    
+    # Ordem das superintendências
+    ordem_superintendencias = [
+        'PRESIDÊNCIA',
+        '1ª VICE-PRESIDÊNCIA',
+        '2ª VICE PRESIDÊNCIA',
+        '3ª VICE - PRESIDÊNCIA',
+        'CORREGEDORIA',
+        'SEM CLASSIFICAÇÃO'
+    ]
+    
+    # Criar coluna auxiliar para ordenação de macrodesafio
+    import re
+    df['_ordem_macro'] = df[Config.COLUNAS['MACRODESAFIO']].apply(
+        lambda x: int(re.match(r'^(\d+)', str(x)).group(1)) if pd.notna(x) and re.match(r'^(\d+)', str(x)) else 999
+    )
+    
+    # Criar dicionário com ordem das superintendências
+    ordem_dict = {super: idx for idx, super in enumerate(ordem_superintendencias)}
+    df['_ordem_super'] = df['Superintendência'].map(lambda x: ordem_dict.get(x, 999))
+    
+    # Ordenar por superintendência e depois por macrodesafio
+    df = df.sort_values(['_ordem_super', '_ordem_macro'])
+    
+    # Agrupar por superintendência
+    grupos_super = {}
+    for superintendencia in ordem_superintendencias:
+        df_super = df[df['Superintendência'] == superintendencia]
+        if len(df_super) > 0:
+            # Dentro de cada superintendência, agrupar por macrodesafio
+            grupos_macro = df_super.groupby(Config.COLUNAS['MACRODESAFIO'], sort=False)
+            grupos_super[superintendencia] = list(grupos_macro)
+    
+    print(f"✅ {len(grupos_super)} Superintendências com dados encontradas.")
+    return grupos_super
+
+
 def agrupar_por_macrodesafio(df):
     """Agrupa dados por Macrodesafio"""
     print("📊 Agrupando dados por Macrodesafio...")
     
     col_macro = Config.COLUNAS['MACRODESAFIO']
-    grupos = df.groupby(col_macro, sort=True)
+    
+    # Criar coluna auxiliar para ordenação numérica
+    # Extrair número do início (ex: "1. Texto" -> 1)
+    import re
+    df['_ordem_macro'] = df[col_macro].apply(
+        lambda x: int(re.match(r'^(\d+)', str(x)).group(1)) if pd.notna(x) and re.match(r'^(\d+)', str(x)) else 999
+    )
+    
+    # Ordenar por número antes de agrupar
+    df = df.sort_values('_ordem_macro')
+    
+    # Agrupar mantendo a ordem
+    grupos = df.groupby(col_macro, sort=False)
     
     print(f"✅ {len(grupos)} Macrodesafios encontrados.")
     return grupos
@@ -185,7 +297,7 @@ def set_keep_with_next(paragraph):
 # FUNÇÕES DE CRIAÇÃO DO DOCUMENTO
 # ============================================
 
-def criar_documento():
+def criar_documento(superintendencia='Presidência'):
     """Cria documento Word base"""
     doc = Document()
     
@@ -209,8 +321,8 @@ def criar_documento():
         section.gutter = Cm(0)
         
         # Cabeçalho e rodapé
-        section.header_distance = Cm(1.27)
-        section.footer_distance = Cm(1.27)
+        section.header_distance = Cm(1.05)
+        section.footer_distance = Cm(1.05)
         
         # Adicionar conteúdo no cabeçalho
         header = section.header
@@ -238,8 +350,8 @@ def criar_documento():
         subtitulo_format.font.name = Config.FONTE_PADRAO
         subtitulo.paragraph_format.space_after = Pt(0)
         
-        # Órgão - negrito, 12pt, laranja, centralizado
-        orgao = header.add_paragraph('Presidência')
+        # Órgão - negrito, 12pt, laranja, centralizado (DINÂMICO)
+        orgao = header.add_paragraph(superintendencia)
         orgao.alignment = WD_ALIGN_PARAGRAPH.CENTER
         orgao_format = orgao.runs[0]
         orgao_format.font.size = Pt(12)
@@ -274,6 +386,98 @@ def adicionar_cabecalho_relatorio(doc):
     """Adiciona cabeçalho do relatório (removido - agora está no header da página)"""
     # Data de geração (opcional, pode ser adicionada se necessário)
     pass
+
+
+def adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False):
+    """Adiciona nova seção com cabeçalho personalizado para superintendência"""
+    
+    if not primeira:
+        # Adicionar quebra de seção (cria nova seção automaticamente)
+        new_section = doc.add_section(WD_SECTION.NEW_PAGE)
+    else:
+        # Usar a última seção existente
+        new_section = doc.sections[-1]
+    
+    # Configurar a nova seção
+    new_section.orientation = WD_ORIENT.LANDSCAPE
+    new_section.page_width = Cm(29.7)
+    new_section.page_height = Cm(21.0)
+    new_section.top_margin = Cm(2.5)
+    new_section.bottom_margin = Cm(2.5)
+    new_section.left_margin = Cm(2.0)
+    new_section.right_margin = Cm(1.5)
+    new_section.gutter = Cm(0)
+    new_section.header_distance = Cm(1.05)
+    new_section.footer_distance = Cm(1.05)
+    
+    # IMPORTANTE: Desvincular cabeçalho e rodapé da seção anterior
+    new_section.different_first_page_header_footer = False
+    
+    # Configurar cabeçalho da nova seção
+    header = new_section.header
+    
+    # Desvincular do cabeçalho anterior
+    header.is_linked_to_previous = False
+    
+    # Limpar cabeçalho padrão
+    for paragraph in list(header.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Título principal
+    titulo = header.add_paragraph('Resultados do Monitoramento de Metas Estratégicas 2025')
+    titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_format = titulo.runs[0]
+    titulo_format.font.size = Pt(12)
+    titulo_format.font.bold = True
+    titulo_format.font.name = Config.FONTE_PADRAO
+    titulo.paragraph_format.space_after = Pt(0)
+    titulo.paragraph_format.space_before = Pt(0)
+    
+    # Subtítulo
+    subtitulo = header.add_paragraph('Relatório Técnico ao Comitê de Governança e Gestão Estratégica')
+    subtitulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitulo_format = subtitulo.runs[0]
+    subtitulo_format.font.size = Pt(11)
+    subtitulo_format.font.name = Config.FONTE_PADRAO
+    subtitulo.paragraph_format.space_after = Pt(0)
+    
+    # Superintendência (DINÂMICO)
+    orgao = header.add_paragraph(superintendencia)
+    orgao.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    orgao_format = orgao.runs[0]
+    orgao_format.font.size = Pt(12)
+    orgao_format.font.bold = True
+    orgao_format.font.name = Config.FONTE_PADRAO
+    orgao_format.font.color.rgb = RGBColor(227, 108, 10)
+    orgao.paragraph_format.space_after = Pt(6)
+    
+    # Configurar rodapé da nova seção
+    footer = new_section.footer
+    
+    # Desvincular do rodapé anterior
+    footer.is_linked_to_previous = False
+    
+    # Limpar rodapé padrão
+    for paragraph in list(footer.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Primeira linha do rodapé
+    linha1 = footer.add_paragraph('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
+    linha1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    linha1_format = linha1.runs[0]
+    linha1_format.font.size = Pt(9)
+    linha1_format.font.name = Config.FONTE_PADRAO
+    linha1.paragraph_format.space_after = Pt(0)
+    
+    # Segunda linha do rodapé
+    linha2 = footer.add_paragraph('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+    linha2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    linha2_format = linha2.runs[0]
+    linha2_format.font.size = Pt(9)
+    linha2_format.font.name = Config.FONTE_PADRAO
+    linha2.paragraph_format.space_after = Pt(0)
 
 
 def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=False):
@@ -334,11 +538,6 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
         # Marcar que já foi executado uma vez
         adicionar_cabecalho_macro._ja_executado = True
     
-    # Adicionar espaço antes do cabeçalho inicial para separar do header da página
-    espaco = doc.add_paragraph()
-    espaco.paragraph_format.space_before = Pt(12)
-    espaco.paragraph_format.space_after = Pt(0)
-    
     # Adicionar cabeçalho inicial
     adicionar_cabecalho_macro()
     
@@ -350,10 +549,6 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
         # Se precisa cabeçalho (após quebra de página), adicionar
         if precisa_cabecalho:
             doc.add_page_break()
-            espaco = doc.add_paragraph()
-            espaco.paragraph_format.space_before = Pt(12)
-            espaco.paragraph_format.space_after = Pt(0
-            )
             adicionar_cabecalho_macro()
             incluir_subcabecalho = True  # Após quebra, sempre incluir subcabeçalho
             precisa_cabecalho = False
@@ -368,6 +563,8 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
         
         if tem_situacao:
             texto_situacao = str(info_complementar)
+            
+            # Criar tabela de célula única para situação (usado tanto para texto curto quanto blocos longos)
             
             # Criar tabela de célula única para situação
             situacao_tabela = doc.add_table(rows=1, cols=1)
@@ -517,8 +714,8 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
             # Formatação do cabeçalho
             for paragraph in cell.paragraphs:
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER  # Centro horizontal
-                paragraph.paragraph_format.space_before = Pt(10)  # Espaço antes
-                paragraph.paragraph_format.space_after = Pt(10)   # Espaço depois
+                paragraph.paragraph_format.space_before = Pt(0)  # Espaço antes
+                paragraph.paragraph_format.space_after = Pt(0)   # Espaço depois
                 paragraph.paragraph_format.line_spacing = 1.0     # Espaçamento entre linhas
                 for run in paragraph.runs:
                     run.font.bold = True
@@ -555,16 +752,92 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
     
     for i, dado in enumerate(dados):
         cell = cells[i]
-        cell.text = dado
         
-        # Formatação do texto
-        for paragraph in cell.paragraphs:
-            # Alinhamento - centralizar todos os dados
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Tratamento especial para coluna Indicador (i == 0)
+        if i == 0:
+            # Limpar célula
+            cell.text = ''
+            paragraph = cell.paragraphs[0] if len(cell.paragraphs) > 0 else cell.add_paragraph()
             
-            # Remover espaçamentos
+            # Separar número do texto (ex: "1.14 - Texto" ou "1.14 Texto")
+            import re
+            match = re.match(r'^(\d+\.?\d*)\s*[-–]?\s*(.*)$', dado)
+            
+            if match:
+                numero = match.group(1)
+                texto_resto = match.group(2)
+                
+                # Adicionar número em negrito
+                run_negrito = paragraph.add_run(numero)
+                run_negrito.font.bold = True
+                run_negrito.font.size = Pt(Config.TAMANHO_TABELA)
+                run_negrito.font.name = Config.FONTE_PADRAO
+                
+                # Adicionar o resto do texto normalmente
+                if texto_resto:
+                    run_normal = paragraph.add_run(' - ' + texto_resto)
+                    run_normal.font.size = Pt(Config.TAMANHO_TABELA)
+                    run_normal.font.name = Config.FONTE_PADRAO
+            else:
+                # Se não encontrar padrão, adicionar texto normal
+                run = paragraph.add_run(dado)
+                run.font.size = Pt(Config.TAMANHO_TABELA)
+                run.font.name = Config.FONTE_PADRAO
+            
+            # Alinhamento
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(0)
+        
+        # Tratamento especial para coluna Meta (i == 1)
+        elif i == 1:
+            # Limpar célula
+            cell.text = ''
+            paragraph = cell.paragraphs[0] if len(cell.paragraphs) > 0 else cell.add_paragraph()
+            
+            # Separar código da meta do texto (ex: "TJMG 111 - Texto" ou "TJMG 111")
+            import re
+            match = re.match(r'^([A-Z]+\s+\d+)\s*[-–]?\s*(.*)$', dado)
+            
+            if match:
+                codigo = match.group(1)
+                texto_resto = match.group(2)
+                
+                # Adicionar código em negrito
+                run_negrito = paragraph.add_run(codigo)
+                run_negrito.font.bold = True
+                run_negrito.font.size = Pt(Config.TAMANHO_TABELA)
+                run_negrito.font.name = Config.FONTE_PADRAO
+                
+                # Adicionar o resto do texto normalmente
+                if texto_resto:
+                    run_normal = paragraph.add_run(' - ' + texto_resto)
+                    run_normal.font.size = Pt(Config.TAMANHO_TABELA)
+                    run_normal.font.name = Config.FONTE_PADRAO
+            else:
+                # Se não encontrar padrão, adicionar texto normal
+                run = paragraph.add_run(dado)
+                run.font.size = Pt(Config.TAMANHO_TABELA)
+                run.font.name = Config.FONTE_PADRAO
+            
+            # Alinhamento
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(0)
+        
+        else:
+            # Outras colunas: formatação normal
+            cell.text = dado
+        
+        # Formatação do texto (para colunas que não são Indicador nem Meta)
+        if i not in [0, 1]:
+            for paragraph in cell.paragraphs:
+                # Alinhamento - centralizar todos os dados
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+                # Remover espaçamentos
+                paragraph.paragraph_format.space_before = Pt(0)
+                paragraph.paragraph_format.space_after = Pt(0)
             
             for run in paragraph.runs:
                 run.font.size = Pt(Config.TAMANHO_TABELA)
@@ -657,24 +930,47 @@ def gerar_relatorio():
     if df is None:
         return
     
-    # 3. Agrupar dados
-    grupos = agrupar_por_macrodesafio(df)
+    # 3. Carregar mapeamento de superintendências
+    mapeamento = carregar_mapeamento_superintendencias()
+    if not mapeamento:
+        print("⚠️  Aviso: Mapeamento não carregado. Continuando sem classificação por superintendência.")
+        return
     
-    # 4. Criar documento
+    # 4. Adicionar coluna de superintendência ao DataFrame
+    df = adicionar_coluna_superintendencia(df, mapeamento)
+    
+    # 5. Agrupar dados por superintendência e macrodesafio
+    grupos_super = agrupar_por_superintendencia_e_macro(df)
+    
+    # 6. Criar documento único (primeira superintendência do dicionário ordenado)
     print("📝 Criando documento Word...")
-    doc = criar_documento()
+    primeira_superintendencia = list(grupos_super.keys())[0] if grupos_super else 'Presidência'
+    doc = criar_documento(primeira_superintendencia)
     
-    # 5. Adicionar cabeçalho do relatório
+    # 7. Adicionar cabeçalho do relatório
     adicionar_cabecalho_relatorio(doc)
     
-    # 6. Adicionar cada Macrodesafio (APENAS PRIMEIRO PARA TESTE)
-    print("✍️  Gerando seções do relatório...")
-    for idx, (macrodesafio, df_grupo) in enumerate(grupos):
-        print(f"   → {macrodesafio} ({len(df_grupo)} registros)")
-        adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=(idx==0))
-        break  # TESTAR APENAS PRIMEIRO MACRODESAFIO
+    # 8. Gerar seções por superintendência no mesmo documento
+    print("✍️  Gerando seções do relatório por Superintendência...")
     
-    # 7. Salvar documento
+    primeira_super = True
+    for superintendencia, grupos_macro in grupos_super.items():
+        print(f"\n📋 Superintendência: {superintendencia}")
+        
+        # Adicionar nova seção com cabeçalho específico (exceto para a primeira)
+        if not primeira_super:
+            adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False)
+        
+        # Adicionar cada Macrodesafio desta superintendência
+        primeira_secao_super = True
+        for idx, (macrodesafio, df_grupo) in enumerate(grupos_macro):
+            print(f"   → {macrodesafio} ({len(df_grupo)} registros)")
+            adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=primeira_secao_super)
+            primeira_secao_super = False
+        
+        primeira_super = False
+    
+    # 9. Salvar documento único
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     nome_arquivo = f"{Config.NOME_RELATORIO}_{timestamp}.docx"
     caminho_completo = os.path.join(Config.PASTA_SAIDA, nome_arquivo)
@@ -683,7 +979,7 @@ def gerar_relatorio():
     
     print(f"\n✅ RELATÓRIO GERADO COM SUCESSO!")
     print(f"📁 Localização: {os.path.abspath(caminho_completo)}")
-    print(f"📄 Total de Macrodesafios: {len(grupos)}")
+    print(f"📄 Total de Superintendências: {len(grupos_super)}")
     print(f"📊 Total de registros: {len(df)}")
     print("\n" + "="*60 + "\n")
 
