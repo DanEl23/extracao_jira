@@ -7,9 +7,10 @@ import pandas as pd
 from docx import Document
 from docx.shared import Pt, RGBColor, Inches, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.section import WD_ORIENT, WD_SECTION
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+from docx.oxml.ns import qn, nsdecls
+from docx.oxml import OxmlElement, parse_xml
 from datetime import datetime
 import os
 
@@ -100,14 +101,12 @@ def carregar_dados():
 
 def carregar_mapeamento_superintendencias():
     """Carrega mapeamento de metas para superintendências"""
-    import json
     try:
-        with open('meta_por_superintendencia.json', 'r', encoding='utf-8') as f:
-            mapeamento = json.load(f)
-        print(f"✅ Mapeamento de superintendências carregado ({len(mapeamento)} metas).")
-        return mapeamento
-    except FileNotFoundError:
-        print("❌ ERRO: Arquivo 'meta_por_superintendencia.json' não encontrado!")
+        from meta_por_superintendencia import META_SUPERINTENDENCIA
+        print(f"✅ Mapeamento de superintendências carregado ({len(META_SUPERINTENDENCIA)} metas).")
+        return META_SUPERINTENDENCIA
+    except ImportError:
+        print("❌ ERRO: Módulo 'meta_por_superintendencia.py' não encontrado!")
         return {}
     except Exception as e:
         print(f"❌ ERRO ao carregar mapeamento: {e}")
@@ -162,15 +161,8 @@ def agrupar_por_superintendencia_e_macro(df):
     """Agrupa dados primeiro por Superintendência, depois por Macrodesafio"""
     print("📊 Agrupando dados por Superintendência e Macrodesafio...")
     
-    # Ordem das superintendências
-    ordem_superintendencias = [
-        'PRESIDÊNCIA',
-        '1ª VICE-PRESIDÊNCIA',
-        '2ª VICE PRESIDÊNCIA',
-        '3ª VICE - PRESIDÊNCIA',
-        'CORREGEDORIA',
-        'SEM CLASSIFICAÇÃO'
-    ]
+    # Importar ordem das superintendências do módulo
+    from meta_por_superintendencia import ORDEM_SUPERINTENDENCIAS
     
     # Criar coluna auxiliar para ordenação de macrodesafio
     import re
@@ -179,7 +171,7 @@ def agrupar_por_superintendencia_e_macro(df):
     )
     
     # Criar dicionário com ordem das superintendências
-    ordem_dict = {super: idx for idx, super in enumerate(ordem_superintendencias)}
+    ordem_dict = {super: idx for idx, super in enumerate(ORDEM_SUPERINTENDENCIAS)}
     df['_ordem_super'] = df['Superintendência'].map(lambda x: ordem_dict.get(x, 999))
     
     # Ordenar por superintendência e depois por macrodesafio
@@ -187,7 +179,7 @@ def agrupar_por_superintendencia_e_macro(df):
     
     # Agrupar por superintendência
     grupos_super = {}
-    for superintendencia in ordem_superintendencias:
+    for superintendencia in ORDEM_SUPERINTENDENCIAS:
         df_super = df[df['Superintendência'] == superintendencia]
         if len(df_super) > 0:
             # Dentro de cada superintendência, agrupar por macrodesafio
@@ -299,94 +291,722 @@ def set_keep_with_next(paragraph):
 # ============================================
 
 def criar_documento(superintendencia='Presidência'):
-    """Cria documento Word base"""
+    """Cria documento Word base com primeira página em retrato"""
     doc = Document()
     
-    # Configurar margens e orientação
-    sections = doc.sections
-    for section in sections:
-        # Orientação paisagem
-        section.orientation = WD_ORIENT.LANDSCAPE
-        
-        # Tamanho do papel A4 em paisagem
-        section.page_width = Cm(29.7)
-        section.page_height = Cm(21.0)
-        
-        # Margens
-        section.top_margin = Cm(2.5)
-        section.bottom_margin = Cm(2.5)
-        section.left_margin = Cm(2.0)
-        section.right_margin = Cm(1.5)
-        
-        # Medianiz (gutter)
-        section.gutter = Cm(0)
-        
-        # Cabeçalho e rodapé
-        section.header_distance = Cm(1.05)
-        section.footer_distance = Cm(0)
-        
-        # Adicionar conteúdo no cabeçalho
-        header = section.header
-        
-        # Remover parágrafos padrão vazios do cabeçalho
-        for paragraph in header.paragraphs:
-            p_element = paragraph._element
-            p_element.getparent().remove(p_element)
-        
-        # Título principal - negrito, 12pt, centralizado
-        titulo = header.add_paragraph('Resultados do Monitoramento de Metas Estratégicas 2025')
-        titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        titulo_format = titulo.runs[0]
-        titulo_format.font.size = Pt(12)
-        titulo_format.font.bold = True
-        titulo_format.font.name = Config.FONTE_PADRAO
-        titulo.paragraph_format.space_after = Pt(0)
-        titulo.paragraph_format.space_before = Pt(0)
-        
-        # Subtítulo - normal, 11pt, centralizado
-        subtitulo = header.add_paragraph('Relatório Técnico ao Comitê de Governança e Gestão Estratégica')
-        subtitulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        subtitulo_format = subtitulo.runs[0]
-        subtitulo_format.font.size = Pt(11)
-        subtitulo_format.font.name = Config.FONTE_PADRAO
-        subtitulo.paragraph_format.space_after = Pt(0)
-        
-        # Órgão - negrito, 12pt, laranja, centralizado (DINÂMICO)
-        orgao = header.add_paragraph(superintendencia)
-        orgao.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        orgao_format = orgao.runs[0]
-        orgao_format.font.size = Pt(12)
-        orgao_format.font.bold = True
-        orgao_format.font.name = Config.FONTE_PADRAO
-        orgao_format.font.color.rgb = RGBColor(227, 108, 10)
-        orgao.paragraph_format.space_after = Pt(6)
-        
-        # Adicionar conteúdo no rodapé
-        footer = section.footer
-        
-        # Primeira linha do rodapé
-        linha1 = footer.add_paragraph('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
-        linha1.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        linha1_format = linha1.runs[0]
-        linha1_format.font.size = Pt(9)
-        linha1_format.font.name = Config.FONTE_PADRAO
-        linha1.paragraph_format.space_after = Pt(0)
-        
-        # Segunda linha do rodapé
-        linha2 = footer.add_paragraph('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
-        linha2.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        linha2_format = linha2.runs[0]
-        linha2_format.font.size = Pt(9)
-        linha2_format.font.name = Config.FONTE_PADRAO
-        linha2.paragraph_format.space_after = Pt(0)
+    # === PRIMEIRA SEÇÃO: RETRATO (para tabela histórica) ===
+    section_retrato = doc.sections[0]
     
+    # Orientação retrato
+    section_retrato.orientation = WD_ORIENT.PORTRAIT
+    
+    # Tamanho do papel A4 em retrato
+    section_retrato.page_width = Cm(21.0)
+    section_retrato.page_height = Cm(29.7)
+    
+    # Margens
+    section_retrato.top_margin = Cm(2.5)
+    section_retrato.bottom_margin = Cm(2.5)
+    section_retrato.left_margin = Cm(2.0)
+    section_retrato.right_margin = Cm(2.0)
+    
+    # Medianiz (gutter)
+    section_retrato.gutter = Cm(0)
+    
+    # Cabeçalho e rodapé
+    section_retrato.header_distance = Cm(1.5)
+    section_retrato.footer_distance = Cm(1.5)
+    
+    # Cabeçalho da primeira página (retrato) - mais simples
+    header_retrato = section_retrato.header
+    
+    # Limpar cabeçalho padrão
+    for paragraph in list(header_retrato.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Título centralizado
+    titulo_retrato = header_retrato.add_paragraph('Resultados do Monitoramento de Metas Estratégicas 2025')
+    titulo_retrato.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_retrato.runs[0].font.size = Pt(14)
+    titulo_retrato.runs[0].font.bold = True
+    titulo_retrato.runs[0].font.name = Config.FONTE_PADRAO
+    titulo_retrato.paragraph_format.space_after = Pt(6)
+    
+    # === RETORNAR DOCUMENTO (segunda seção paisagem será criada depois) ===
     return doc
 
 
+def criar_secao_paisagem_inicial(doc, superintendencia='Presidência'):
+    """Cria segunda seção em paisagem para as tabelas de metas"""
+    
+    # Adicionar quebra de seção para paisagem
+    section_paisagem = doc.add_section(WD_SECTION.NEW_PAGE)
+    
+    # Configurar orientação paisagem
+    section_paisagem.orientation = WD_ORIENT.LANDSCAPE
+    
+    # Tamanho do papel A4 em paisagem
+    section_paisagem.page_width = Cm(29.7)
+    section_paisagem.page_height = Cm(21.0)
+    
+    # Margens
+    section_paisagem.top_margin = Cm(2.5)
+    section_paisagem.bottom_margin = Cm(2.5)
+    section_paisagem.left_margin = Cm(2.0)
+    section_paisagem.right_margin = Cm(1.5)
+    
+    # Medianiz (gutter)
+    section_paisagem.gutter = Cm(0)
+    
+    # Cabeçalho e rodapé
+    section_paisagem.header_distance = Cm(1.05)
+    section_paisagem.footer_distance = Cm(1.05)
+    
+    # Desvincular cabeçalho da seção anterior
+    header = section_paisagem.header
+    header.is_linked_to_previous = False
+    
+    # Limpar cabeçalho padrão
+    for paragraph in list(header.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Título principal - negrito, 12pt, centralizado
+    titulo = header.add_paragraph('Resultados do Monitoramento de Metas Estratégicas 2025')
+    titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_format = titulo.runs[0]
+    titulo_format.font.size = Pt(12)
+    titulo_format.font.bold = True
+    titulo_format.font.name = Config.FONTE_PADRAO
+    titulo.paragraph_format.space_after = Pt(0)
+    titulo.paragraph_format.space_before = Pt(0)
+    
+    # Subtítulo - normal, 11pt, centralizado
+    subtitulo = header.add_paragraph('Relatório Técnico ao Comitê de Governança e Gestão Estratégica')
+    subtitulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitulo_format = subtitulo.runs[0]
+    subtitulo_format.font.size = Pt(11)
+    subtitulo_format.font.name = Config.FONTE_PADRAO
+    subtitulo.paragraph_format.space_after = Pt(0)
+    
+    # Órgão - negrito, 12pt, laranja, centralizado (DINÂMICO)
+    orgao = header.add_paragraph(superintendencia)
+    orgao.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    orgao_format = orgao.runs[0]
+    orgao_format.font.size = Pt(12)
+    orgao_format.font.bold = True
+    orgao_format.font.name = Config.FONTE_PADRAO
+    orgao_format.font.color.rgb = RGBColor(227, 108, 10)
+    orgao.paragraph_format.space_after = Pt(6)
+    
+    # Adicionar conteúdo no rodapé
+    footer = section_paisagem.footer
+    footer.is_linked_to_previous = False
+    
+    # Limpar rodapé padrão
+    for paragraph in list(footer.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Primeira linha do rodapé
+    linha1 = footer.add_paragraph('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
+    linha1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    linha1_format = linha1.runs[0]
+    linha1_format.font.size = Pt(9)
+    linha1_format.font.name = Config.FONTE_PADRAO
+    linha1.paragraph_format.space_after = Pt(0)
+    
+    # Segunda linha do rodapé
+    linha2 = footer.add_paragraph('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+    linha2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    linha2_format = linha2.runs[0]
+    linha2_format.font.size = Pt(9)
+    linha2_format.font.name = Config.FONTE_PADRAO
+    
+    return section_paisagem
+
+
+def adicionar_tabela_historica(doc):
+    """
+    Adiciona tabela histórica de metas aprovadas (4 anos mais recentes).
+    Formato conforme imagem de referência com cabeçalho laranja.
+    """
+    from meta_por_superintendencia import atualizar_historico_com_ano_atual
+    
+    # Obter dados históricos (4 anos mais recentes)
+    dados = atualizar_historico_com_ano_atual()
+    historico = dados['historico_recente']
+    anos = dados['anos_recentes']
+    variacao = dados['variacao']
+    primeiro_ano = anos[0]
+    ultimo_ano = anos[-1]
+    
+    # Adicionar parágrafo de espaçamento
+    doc.add_paragraph()
+    
+    # Criar tabela (4 linhas x 6 colunas)
+    # Linha 1: Título (merged)
+    # Linha 2: Cabeçalho (Ano, anos..., Variação)
+    # Linha 3: Metas Nacionais
+    # Linha 4: Metas Institucionais  
+    # Linha 5: Total
+    table = doc.add_table(rows=5, cols=6)
+    table.style = 'Table Grid'
+    
+    # === LINHA 1: TÍTULO (MERGED) ===
+    titulo_cells = table.rows[0].cells
+    # Merge todas as células da primeira linha
+    merged_cell = titulo_cells[0].merge(titulo_cells[5])
+    
+    # Adicionar texto do título
+    titulo_paragraph = merged_cell.paragraphs[0]
+    titulo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_run = titulo_paragraph.add_run(
+        'TOTAL DE METAS APROVADAS PARA COMPOSIÇÃO DO PLANEJAMENTO ESTRATÉGICO\nINSTITUCIONAL DO TJMG'
+    )
+    titulo_run.font.size = Pt(12)
+    titulo_run.font.bold = True
+    titulo_run.font.color.rgb = RGBColor(255, 255, 255)
+    titulo_run.font.name = Config.FONTE_PADRAO
+    
+    # Cor de fundo laranja
+    shading = parse_xml(r'<w:shd {} w:fill="E36C0A"/>'.format(nsdecls('w')))
+    merged_cell._element.get_or_add_tcPr().append(shading)
+    
+    # Alinhamento vertical centralizado
+    merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Altura da linha do título: 0,7cm
+    table.rows[0].height = Cm(0.7)
+    
+    # === LINHA 2: CABEÇALHO (Anos) ===
+    header_row = table.rows[1]
+    headers = ['Ano'] + [str(ano) for ano in anos] + [f'Variação\n{primeiro_ano} - {ultimo_ano}']
+    
+    for idx, header_text in enumerate(headers):
+        cell = header_row.cells[idx]
+        cell.text = header_text
+        paragraph = cell.paragraphs[0]
+        
+        # Alinhamento: primeira coluna à esquerda, restante centralizado
+        if idx == 0:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Formatação: tamanho 11, negrito
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = True
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Cor de fundo RGB(250,191,143)
+        shading = parse_xml(r'<w:shd {} w:fill="FABF8F"/>'.format(nsdecls('w')))
+        cell._element.get_or_add_tcPr().append(shading)
+        
+        # Alinhamento vertical centralizado
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Altura da linha do cabeçalho: 0,7cm
+    table.rows[1].height = Cm(0.7)
+    
+    # === LINHA 3: METAS NACIONAIS ===
+    row_nac = table.rows[2]
+    row_nac.cells[0].text = 'Metas Nacionais'
+    for idx, ano in enumerate(anos, start=1):
+        row_nac.cells[idx].text = str(historico[ano]['nacionais'])
+    row_nac.cells[5].text = f"{variacao['nacionais']:+}%"
+    
+    # Formatar células: tamanho 11, sem negrito
+    for idx, cell in enumerate(row_nac.cells):
+        paragraph = cell.paragraphs[0]
+        
+        # Alinhamento: primeira coluna à esquerda, restante centralizado
+        if idx == 0:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Alinhamento vertical centralizado
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Altura da linha: 1cm
+    table.rows[2].height = Cm(1.0)
+    
+    # === LINHA 4: METAS INSTITUCIONAIS ===
+    row_inst = table.rows[3]
+    row_inst.cells[0].text = 'Metas Institucionais'
+    for idx, ano in enumerate(anos, start=1):
+        row_inst.cells[idx].text = str(historico[ano]['institucionais'])
+    row_inst.cells[5].text = f"{variacao['institucionais']:+}%"
+    
+    # Formatar células: tamanho 11, sem negrito
+    for idx, cell in enumerate(row_inst.cells):
+        paragraph = cell.paragraphs[0]
+        
+        # Alinhamento: primeira coluna à esquerda, restante centralizado
+        if idx == 0:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Alinhamento vertical centralizado
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Altura da linha: 1cm
+    table.rows[3].height = Cm(1.0)
+    
+    # === LINHA 5: TOTAL ===
+    row_total = table.rows[4]
+    row_total.cells[0].text = 'Total'
+    for idx, ano in enumerate(anos, start=1):
+        row_total.cells[idx].text = str(historico[ano]['total'])
+    row_total.cells[5].text = f"{variacao['total']:+}%"
+    
+    # Formatar células: tamanho 11, negrito
+    for idx, cell in enumerate(row_total.cells):
+        paragraph = cell.paragraphs[0]
+        
+        # Alinhamento: primeira coluna à esquerda, restante centralizado
+        if idx == 0:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = True
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Cor de fundo RGB(64,64,64)
+        shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+        cell._element.get_or_add_tcPr().append(shading)
+        
+        # Texto branco para linha Total
+        for run in paragraph.runs:
+            run.font.color.rgb = RGBColor(255, 255, 255)
+        
+        # Alinhamento vertical centralizado
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Altura da linha Total: 0,7cm
+    table.rows[4].height = Cm(0.7)
+    
+    # Ajustar largura das colunas
+    for row in table.rows:
+        row.cells[0].width = Cm(4.5)  # Coluna "Ano"
+        for i in range(1, 6):
+            row.cells[i].width = Cm(2.5)  # Colunas dos anos e variação
+    
+    # Adicionar nota de rodapé
+    nota = doc.add_paragraph()
+    nota_run = nota.add_run(
+        '*Destaca-se que a redução no número de metas nacionais no período decorreu de revisões propostas pelo '
+        'Conselho Nacional de Justiça – CNJ, e aprovada pelos Tribunais Estaduais, em relação a seu compromisso com '
+        'o Sistema de Justiça e a prestação jurisdicional.'
+    )
+    nota_run.font.size = Pt(8)
+    nota_run.font.italic = True
+    nota_run.font.name = Config.FONTE_PADRAO
+    nota.paragraph_format.space_before = Pt(6)
+    
+    # Adicionar espaçamento após a tabela
+    doc.add_paragraph()
+
+
+def adicionar_tabela_macrodesafio(doc):
+    """
+    Adiciona tabela histórica de metas por macrodesafio (4 anos mais recentes).
+    Formato conforme imagem de referência com cabeçalho laranja.
+    """
+    from meta_por_superintendencia import atualizar_historico_macrodesafio_com_ano_atual
+    
+    # Obter dados históricos (4 anos mais recentes)
+    dados = atualizar_historico_macrodesafio_com_ano_atual()
+    historico = dados['historico_recente']
+    anos = dados['anos_recentes']
+    macrodesafios = dados['macrodesafios']
+    
+    # Adicionar parágrafo de espaçamento
+    doc.add_paragraph()
+    
+    # Criar tabela (linhas: título + cabeçalho + macrodesafios + total) x (colunas: macrodesafio + anos)
+    num_linhas = 2 + len(macrodesafios) + 1  # título + cabeçalho + macros + total
+    num_colunas = 1 + len(anos)  # macrodesafio + anos
+    
+    table = doc.add_table(rows=num_linhas, cols=num_colunas)
+    table.style = 'Table Grid'
+    
+    # === LINHA 1: TÍTULO (MERGED) ===
+    titulo_cells = table.rows[0].cells
+    merged_cell = titulo_cells[0].merge(titulo_cells[-1])
+    
+    # Adicionar texto do título
+    titulo_paragraph = merged_cell.paragraphs[0]
+    titulo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_run = titulo_paragraph.add_run(
+        f'TOTAL DE METAS POR MACRODESAFIO – COMPARATIVO {anos[0]} A {anos[-1]}'
+    )
+    titulo_run.font.size = Pt(12)
+    titulo_run.font.bold = True
+    titulo_run.font.color.rgb = RGBColor(255, 255, 255)
+    titulo_run.font.name = Config.FONTE_PADRAO
+    
+    # Cor de fundo laranja
+    shading = parse_xml(r'<w:shd {} w:fill="E36C0A"/>'.format(nsdecls('w')))
+    merged_cell._element.get_or_add_tcPr().append(shading)
+    merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    table.rows[0].height = Cm(0.8)
+    
+    # === LINHA 2: CABEÇALHO ===
+    header_row = table.rows[1]
+    headers = ['Macrodesafio'] + [str(ano) for ano in anos]
+    
+    for idx, header_text in enumerate(headers):
+        cell = header_row.cells[idx]
+        cell.text = header_text
+        paragraph = cell.paragraphs[0]
+        
+        # Alinhamento: primeira coluna à esquerda, restante centralizado
+        if idx == 0:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        else:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(12)
+            run.font.bold = True
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Cor de fundo RGB(250,191,143)
+        shading = parse_xml(r'<w:shd {} w:fill="FABF8F"/>'.format(nsdecls('w')))
+        cell._element.get_or_add_tcPr().append(shading)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    table.rows[1].height = Cm(0.8)
+    
+    # === LINHAS DE MACRODESAFIOS ===
+    total_por_ano = {ano: 0 for ano in anos}
+    
+    for idx_macro, macrodesafio in enumerate(macrodesafios, start=2):
+        row = table.rows[idx_macro]
+        
+        # Determinar cor de fundo alternada (baseado no índice do macrodesafio)
+        idx_relativo = idx_macro - 2  # 0, 1, 2, ...
+        if idx_relativo % 2 == 0:
+            # Linhas pares: RGB(251,212,180)
+            cor_fundo = "FBD4B4"
+        else:
+            # Linhas ímpares: RGB(255,255,255) - branco
+            cor_fundo = "FFFFFF"
+        
+        # Primeira coluna: nome do macrodesafio
+        row.cells[0].text = macrodesafio
+        paragraph = row.cells[0].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Aplicar cor de fundo
+        shading = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), cor_fundo))
+        row.cells[0]._element.get_or_add_tcPr().append(shading)
+        row.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Demais colunas: valores por ano
+        for idx_ano, ano in enumerate(anos, start=1):
+            valor = historico[ano].get(macrodesafio, 0)
+            total_por_ano[ano] += valor
+            
+            row.cells[idx_ano].text = str(valor)
+            paragraph = row.cells[idx_ano].paragraphs[0]
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            for run in paragraph.runs:
+                run.font.size = Pt(11)
+                run.font.bold = False
+                run.font.name = Config.FONTE_PADRAO
+            
+            # Aplicar mesma cor de fundo
+            shading = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), cor_fundo))
+            row.cells[idx_ano]._element.get_or_add_tcPr().append(shading)
+            row.cells[idx_ano].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Altura da linha
+        table.rows[idx_macro].height = Cm(0.7)
+    
+    # === LINHA TOTAL ===
+    row_total_idx = num_linhas - 1
+    row_total = table.rows[row_total_idx]
+    
+    row_total.cells[0].text = 'Total Geral'
+    paragraph = row_total.cells[0].paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    
+    for run in paragraph.runs:
+        run.font.size = Pt(12)
+        run.font.bold = True
+        run.font.name = Config.FONTE_PADRAO
+    
+    # Cor de fundo e texto branco
+    shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+    row_total.cells[0]._element.get_or_add_tcPr().append(shading)
+    
+    for run in paragraph.runs:
+        run.font.color.rgb = RGBColor(255, 255, 255)
+    
+    row_total.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Valores totais por ano
+    for idx_ano, ano in enumerate(anos, start=1):
+        row_total.cells[idx_ano].text = str(total_por_ano[ano])
+        paragraph = row_total.cells[idx_ano].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(12)
+            run.font.bold = True
+            run.font.name = Config.FONTE_PADRAO
+            run.font.color.rgb = RGBColor(255, 255, 255)
+        
+        # Cor de fundo e texto branco
+        shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+        row_total.cells[idx_ano]._element.get_or_add_tcPr().append(shading)
+        
+        row_total.cells[idx_ano].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    table.rows[row_total_idx].height = Cm(0.8)
+    
+    # Ajustar largura das colunas
+    for row in table.rows:
+        row.cells[0].width = Cm(12.0)  # Coluna "Macrodesafio" mais larga
+        for i in range(1, num_colunas):
+            row.cells[i].width = Cm(1.94)  # Colunas dos anos
+    
+    # Aplicar recuo negativo de -0.7cm à tabela
+    tbl = table._element
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = parse_xml(r'<w:tblPr {}/> '.format(nsdecls('w')))
+        tbl.insert(0, tblPr)
+    
+    tblInd = parse_xml(r'<w:tblInd {} w:w="-397" w:type="dxa"/>'.format(nsdecls('w')))
+    tblPr.append(tblInd)
+    
+    # Adicionar espaçamento após a tabela
+    doc.add_paragraph()
+
+
 def adicionar_cabecalho_relatorio(doc):
-    """Adiciona cabeçalho do relatório (removido - agora está no header da página)"""
-    # Data de geração (opcional, pode ser adicionada se necessário)
-    pass
+    """Adiciona cabeçalho do relatório com tabelas históricas"""
+    adicionar_tabela_historica(doc)
+    adicionar_tabela_macrodesafio(doc)
+    adicionar_tabela_resultado_monitoramento(doc)
+
+
+def adicionar_tabela_resultado_monitoramento(doc):
+    """
+    Adiciona tabela de resultado do monitoramento de metas.
+    Mostra distribuição por faixa de cumprimento.
+    """
+    from resultado_monitoramento import calcular_resultado_monitoramento
+    
+    # Obter dados
+    dados = calcular_resultado_monitoramento()
+    
+    # Adicionar parágrafo de espaçamento
+    doc.add_paragraph()
+    
+    # Criar tabela (linhas: título + cabeçalho + 4 faixas + total) x 3 colunas
+    table = doc.add_table(rows=7, cols=3)
+    table.style = 'Table Grid'
+    
+    # === LINHA 1: TÍTULO (MERGED) ===
+    titulo_cells = table.rows[0].cells
+    merged_cell = titulo_cells[0].merge(titulo_cells[-1])
+    
+    titulo_paragraph = merged_cell.paragraphs[0]
+    titulo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    titulo_run = titulo_paragraph.add_run('RESULTADO DO MONITORAMENTO DAS METAS ESTRATÉGICAS')
+    titulo_run.font.size = Pt(12)
+    titulo_run.font.bold = True
+    titulo_run.font.color.rgb = RGBColor(255, 255, 255)
+    titulo_run.font.name = Config.FONTE_PADRAO
+    
+    # Cor de fundo laranja
+    shading = parse_xml(r'<w:shd {} w:fill="E36C0A"/>'.format(nsdecls('w')))
+    merged_cell._element.get_or_add_tcPr().append(shading)
+    merged_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    table.rows[0].height = Cm(0.8)
+    
+    # === LINHA 2: CABEÇALHO ===
+    header_row = table.rows[1]
+    headers = ['', 'Quantidade', 'Percentual']
+    
+    for idx, header_text in enumerate(headers):
+        cell = header_row.cells[idx]
+        cell.text = header_text
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(12)
+            run.font.bold = True
+            run.font.name = Config.FONTE_PADRAO
+        
+        # Cor de fundo RGB(250,191,143)
+        shading = parse_xml(r'<w:shd {} w:fill="FABF8F"/>'.format(nsdecls('w')))
+        cell._element.get_or_add_tcPr().append(shading)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    table.rows[1].height = Cm(0.8)
+    
+    # === LINHAS DE DADOS ===
+    faixas = [
+        ('Metas com resultado maior ou igual 100%', dados['maior_100']),
+        ('Metas com resultado entre 70% e 100%', dados['entre_70_100']),
+        ('Metas com resultado abaixo de 70%', dados['abaixo_70']),
+        ('Metas sem apuração até outubro/2024', dados['sem_apuracao'])
+    ]
+    
+    total = dados['total']
+    
+    for idx_faixa, (descricao, quantidade) in enumerate(faixas, start=2):
+        row = table.rows[idx_faixa]
+        
+        # Cor de fundo alternada
+        idx_relativo = idx_faixa - 2
+        if idx_relativo % 2 == 0:
+            cor_fundo = "FBD4B4"  # RGB(251,212,180)
+        else:
+            cor_fundo = "FFFFFF"  # Branco
+        
+        # Coluna 1: Descrição
+        row.cells[0].text = descricao
+        paragraph = row.cells[0].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        shading = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), cor_fundo))
+        row.cells[0]._element.get_or_add_tcPr().append(shading)
+        row.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Coluna 2: Quantidade
+        row.cells[1].text = str(quantidade)
+        paragraph = row.cells[1].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        shading = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), cor_fundo))
+        row.cells[1]._element.get_or_add_tcPr().append(shading)
+        row.cells[1].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Coluna 3: Percentual
+        percentual = round((quantidade / total * 100)) if total > 0 else 0
+        row.cells[2].text = f"{percentual}%"
+        paragraph = row.cells[2].paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        for run in paragraph.runs:
+            run.font.size = Pt(11)
+            run.font.bold = False
+            run.font.name = Config.FONTE_PADRAO
+        
+        shading = parse_xml(r'<w:shd {} w:fill="{}"/>'.format(nsdecls('w'), cor_fundo))
+        row.cells[2]._element.get_or_add_tcPr().append(shading)
+        row.cells[2].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        
+        # Altura da linha
+        table.rows[idx_faixa].height = Cm(0.7)
+    
+    # === LINHA TOTAL ===
+    row_total = table.rows[6]
+    
+    row_total.cells[0].text = 'Total'
+    paragraph = row_total.cells[0].paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    
+    for run in paragraph.runs:
+        run.font.size = Pt(12)
+        run.font.bold = True
+        run.font.name = Config.FONTE_PADRAO
+        run.font.color.rgb = RGBColor(255, 255, 255)
+    
+    shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+    row_total.cells[0]._element.get_or_add_tcPr().append(shading)
+    row_total.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Coluna quantidade
+    row_total.cells[1].text = str(total)
+    paragraph = row_total.cells[1].paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    for run in paragraph.runs:
+        run.font.size = Pt(12)
+        run.font.bold = True
+        run.font.name = Config.FONTE_PADRAO
+        run.font.color.rgb = RGBColor(255, 255, 255)
+    
+    shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+    row_total.cells[1]._element.get_or_add_tcPr().append(shading)
+    row_total.cells[1].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    # Coluna percentual
+    row_total.cells[2].text = '100%'
+    paragraph = row_total.cells[2].paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    for run in paragraph.runs:
+        run.font.size = Pt(12)
+        run.font.bold = True
+        run.font.name = Config.FONTE_PADRAO
+        run.font.color.rgb = RGBColor(255, 255, 255)
+    
+    shading = parse_xml(r'<w:shd {} w:fill="404040"/>'.format(nsdecls('w')))
+    row_total.cells[2]._element.get_or_add_tcPr().append(shading)
+    row_total.cells[2].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    
+    table.rows[6].height = Cm(0.8)
+    
+    # Ajustar largura das colunas
+    for row in table.rows:
+        row.cells[0].width = Cm(12.0)  # Coluna descrição
+        row.cells[1].width = Cm(2.5)   # Coluna quantidade
+        row.cells[2].width = Cm(2.5)   # Coluna percentual
+    
+    # Aplicar recuo negativo de -0.7cm à tabela
+    tbl = table._element
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = parse_xml(r'<w:tblPr {}/> '.format(nsdecls('w')))
+        tbl.insert(0, tblPr)
+    
+    tblInd = parse_xml(r'<w:tblInd {} w:w="-397" w:type="dxa"/>'.format(nsdecls('w')))
+    tblPr.append(tblInd)
+    
+    # Adicionar espaçamento após a tabela
+    doc.add_paragraph()
 
 
 def adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False):
@@ -987,15 +1607,20 @@ def gerar_relatorio():
     # 5. Agrupar dados por superintendência e macrodesafio
     grupos_super = agrupar_por_superintendencia_e_macro(df)
     
-    # 6. Criar documento único (primeira superintendência do dicionário ordenado)
+    # 6. Criar documento com primeira página em retrato
     print("📝 Criando documento Word...")
     primeira_superintendencia = list(grupos_super.keys())[0] if grupos_super else 'Presidência'
     doc = criar_documento(primeira_superintendencia)
     
-    # 7. Adicionar cabeçalho do relatório
+    # 7. Adicionar tabela histórica na primeira página (retrato)
+    print("📊 Adicionando tabela histórica...")
     adicionar_cabecalho_relatorio(doc)
     
-    # 8. Gerar seções por superintendência no mesmo documento
+    # 8. Criar segunda seção em paisagem para as tabelas de metas
+    print("📄 Criando seção em paisagem...")
+    criar_secao_paisagem_inicial(doc, primeira_superintendencia)
+    
+    # 9. Gerar seções por superintendência no mesmo documento
     print("✍️  Gerando seções do relatório por Superintendência...")
     
     primeira_super = True
@@ -1015,7 +1640,7 @@ def gerar_relatorio():
         
         primeira_super = False
     
-    # 9. Salvar documento único
+    # 10. Salvar documento único
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     nome_arquivo = f"{Config.NOME_RELATORIO}_{timestamp}.docx"
     caminho_completo = os.path.join(Config.PASTA_SAIDA, nome_arquivo)
