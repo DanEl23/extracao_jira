@@ -207,11 +207,26 @@ class AutomacaoPainelCNJ:
                 
                 l_cats = [c.get_attribute('textContent').strip() for c in categorias if c.get_attribute('textContent').strip()]
                 l_vals = [v.get_attribute('textContent').strip() for v in valores if v.get_attribute('textContent').strip()]
+                
+                # Remover duplicação de categorias (ex: "1º Grau1º Grau" -> "1º Grau")
+                l_cats_limpo = []
+                for cat in l_cats:
+                    # Verifica se a string é duplicada (primeira metade = segunda metade)
+                    if len(cat) > 0 and len(cat) % 2 == 0:
+                        metade = len(cat) // 2
+                        primeira_metade = cat[:metade]
+                        segunda_metade = cat[metade:]
+                        if primeira_metade == segunda_metade:
+                            l_cats_limpo.append(primeira_metade)
+                        else:
+                            l_cats_limpo.append(cat)
+                    else:
+                        l_cats_limpo.append(cat)
 
-                if l_cats and l_vals:
-                    limite = min(len(l_cats), len(l_vals))
+                if l_cats_limpo and l_vals:
+                    limite = min(len(l_cats_limpo), len(l_vals))
                     for i in range(limite):
-                        self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, l_cats[i], l_vals[i])
+                        self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, l_cats_limpo[i], l_vals[i])
                     print(f"✅ Extraídos {limite} registros.")
                 else:
                     print("⚠️ Container achado, mas dados vazios.")
@@ -220,6 +235,66 @@ class AutomacaoPainelCNJ:
         else:
             print("⚠️ Nenhum gráfico encontrado.")
 
+    # --- FUNÇÃO KPI META 1 (Julgar mais processos que os distribuídos) ---
+    def extrair_kpi_meta_1_total(self):
+        print(f"\n--- Iniciando Extração KPI Total (Meta 1) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="1")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        print(f"🔍 Buscando cartão 'Julgar mais processos que os distribuídos'...")
+        try:
+            # Busca específica pelo título do card
+            xpath_card = "//div[@title='Julgar mais processos que os distribuídos']/ancestor::div[contains(@class, 'visualWrapper')]"
+            card = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_card)))
+            
+            # Extrai o valor do SVG text com classe "value"
+            valor = card.find_element(By.CSS_SELECTOR, "text.value tspan").text.strip()
+            print(f"💎 Valor encontrado: {valor}")
+            
+            # Adiciona com categoria "Total" como solicitado
+            self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total", valor)
+        except Exception as e:
+            print(f"❌ Erro ao extrair KPI Total da Meta 1: {e}")
+    
+    # --- FUNÇÃO KPI META 2 (Extrair múltiplos KPIs por instância) ---
+    def extrair_kpis_meta_2(self):
+        print(f"\n--- Iniciando Extração KPIs Meta 2 ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="2")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        # Mapeamento dos títulos dos cards e suas instâncias
+        instancias_titles = {
+            "1º Grau": "1º Grau",
+            "2º Grau": "2º Grau",
+            "Juizados e Turmas": "Juizados e Turmas",
+            "Processos mais Antigos": "Processos mais Antigos"
+        }
+        
+        for titulo_card, instancia in instancias_titles.items():
+            print(f"\n🔍 Buscando card 'Cumprimento' da instância '{titulo_card}'...")
+            try:
+                # Localizar o card principal pelo título
+                xpath_wrapper = f"//div[@title='{titulo_card}']/ancestor::div[contains(@class, 'visualWrapper')]"
+                wrapper = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_wrapper)))
+                
+                # Extrair apenas o KPI "Cumprimento" (primeiro card)
+                try:
+                    # Busca específica pelo card com label "Cumprimento"
+                    cumprimento_xpath = ".//h4[contains(text(), 'Cumprimento')]/following-sibling::p"
+                    valor_elem = wrapper.find_element(By.XPATH, cumprimento_xpath)
+                    valor = valor_elem.text.strip()
+                    
+                    print(f"   💎 {instancia} - Cumprimento: {valor}")
+                    
+                    # Adiciona linha com categoria sendo a instância
+                    self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, instancia, valor)
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Erro ao extrair Cumprimento: {e}")
+                        
+            except Exception as e:
+                print(f"❌ Erro ao processar instância '{titulo_card}': {e}")
+    
     # --- FUNÇÃO KPI GENERALIZADA (META 3, 5, 6) ---
     def extrair_kpi_cumprimento(self, numero_meta, kpi_title):
         print(f"\n--- Iniciando Extração KPI (Alvo: Meta {numero_meta}) ---")
@@ -253,8 +328,8 @@ class AutomacaoPainelCNJ:
                     return True
             except: return False
 
-        extrair_valor_do_cartao("Meta 4", "Cumprimento", "Total Real")
-        extrair_valor_do_cartao("Meta 4 Improb. Administrativa", "Cumprimento", "Total Submeta")
+        extrair_valor_do_cartao("Meta 4", "Cumprimento", "Crimes contra a administração pública")
+        extrair_valor_do_cartao("Meta 4 Improb. Administrativa", "Cumprimento", "Improbidade administrativa")
 
     # --- FUNÇÃO META 6 (Extração por Background SVG) ---
     def extrair_kpi_meta_6(self):
@@ -342,8 +417,8 @@ class AutomacaoPainelCNJ:
                     return True
             except: return False
 
-        extrair_valor_do_cartao("1º Grau", "Cumprimento", "Total 1º Grau")
-        extrair_valor_do_cartao("2º Grau", "Cumprimento", "Total 2º Grau")
+        extrair_valor_do_cartao("1º Grau", "Cumprimento", "1º Grau")
+        extrair_valor_do_cartao("2º Grau", "Cumprimento", "2º Grau")
 
     def salvar_excel(self):
         if self.dados_extraidos:
@@ -365,13 +440,14 @@ class AutomacaoPainelCNJ:
         time.sleep(2)
         self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
         self.extrair_dados_da_aba(numero_meta_esperada="1")
+        self.extrair_kpi_meta_1_total()  # Extrai o KPI "Julgar mais processos que os distribuídos"
         
         # META 2
         print("\n=== 🏁 INICIANDO META 2 ===")
         if self.clicar_elemento_por_texto("Meta 2"):
             self.clicar_botao_laranja_estadual(indice_alvo=1)
             self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
-            self.extrair_dados_da_aba(numero_meta_esperada="2")
+            self.extrair_kpis_meta_2()
         
         # META 3
         print("\n=== 🏁 INICIANDO META 3 ===")

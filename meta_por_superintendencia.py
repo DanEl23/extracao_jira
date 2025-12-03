@@ -104,6 +104,36 @@ ORDEM_SUPERINTENDENCIAS = [
 
 
 # ============================================
+# METAS CNJ - ALVOS POR CATEGORIA
+# ============================================
+
+# Mapeamento dos valores alvo para cada meta CNJ e sua categoria
+METAS_CNJ_ALVOS = {
+    ("CNJ 1", "1º Grau"): 100.0,
+    ("CNJ 1", "2º Grau"): 100.0,
+    ("CNJ 1", "Turma Recursal"): 100.0,
+    ("CNJ 1", "Juizado Especial"): 100.0,
+    ("CNJ 1", "Total"): 100.0,  # Linha agregadora da Meta 1
+    ("CNJ 2", "1º Grau"): 80.0,
+    ("CNJ 2", "2º Grau"): 90.0,
+    ("CNJ 2", "Juizados e Turmas"): 95.0,
+    ("CNJ 2", "Processos mais Antigos"): 100.0,
+    ("CNJ 3", "Total"): 1.0,
+    ("CNJ 4", "Crimes contra a administração pública"): 65.0,
+    ("CNJ 4", "Improbidade administrativa"): 100.0,
+    ("CNJ 5", "Total"): 100.0,
+    ("CNJ 6", "Total"): 50.0,
+    ("CNJ 7", "Total Indígenas"): 50.0,
+    ("CNJ 7", "Total Quilombola"): 50.0,
+    ("CNJ 8", "Total Feminicídio"): 75.0,
+    ("CNJ 8", "Total Violência Doméstica"): 90.0,
+    ("CNJ 9", "Total"): 100.0,
+    ("CNJ 10", "1º Grau"): 90.0,
+    ("CNJ 10", "2º Grau"): 100.0,
+}
+
+
+# ============================================
 # ESTATÍSTICAS HISTÓRICAS
 # ============================================
 
@@ -649,4 +679,89 @@ if __name__ == "__main__":
             print(f"  Institucionais: {info['institucionais']}")
             print(f"  Total: {info['total']}")
             print(f"  Metas: {', '.join(info['metas'][:5])}{'...' if len(info['metas']) > 5 else ''}")
+
+
+def calcular_cumprimento_metas_cnj():
+    """
+    Calcula o cumprimento agregado das metas CNJ considerando múltiplas categorias.
+    
+    Lógica:
+    1. Para cada categoria, ajustar cumprimento (máximo 100%)
+    2. Calcular valor apurado = (cumprimento_ajustado * alvo) / 100
+    3. Calcular média aritmética dos valores apurados por meta
+    4. Retornar cumprimento final de cada meta CNJ
+    
+    Returns:
+        dict: {
+            'CNJ 1': {'cumprimento': float, 'categorias': int},
+            'CNJ 2': {'cumprimento': float, 'categorias': int},
+            ...
+        }
+    """
+    try:
+        # Carregar dados CNJ
+        df_cnj = pd.read_excel('exports/resultados_cnj.xlsx')
+        
+        # Extrair número da meta para agrupar
+        df_cnj['Meta_Numero'] = df_cnj['Meta'].str.extract(r'(Meta\s+\d+)', expand=False)
+        df_cnj['Meta_CNJ'] = df_cnj['Meta_Numero'].str.replace('Meta', 'CNJ')
+        
+        # Remover linhas sem meta identificada
+        df_cnj = df_cnj[df_cnj['Meta_CNJ'].notna()].copy()
+        
+        # Converter resultado para float (remover % se necessário)
+        def converter_percentual(val):
+            if pd.isna(val):
+                return 0.0
+            val_str = str(val).replace('%', '').replace(',', '.').strip()
+            try:
+                return float(val_str)
+            except:
+                return 0.0
+        
+        df_cnj['Resultado_Float'] = df_cnj['Resultado'].apply(converter_percentual)
+        
+        # Calcular cumprimento por meta
+        resultado_metas = {}
+        
+        for meta_cnj in df_cnj['Meta_CNJ'].unique():
+            df_meta = df_cnj[df_cnj['Meta_CNJ'] == meta_cnj]
+            
+            valores_apurados = []
+            
+            for _, row in df_meta.iterrows():
+                categoria = row['Categoria']
+                cumprimento_real = row['Resultado_Float']
+                
+                # Buscar alvo da meta
+                chave_alvo = (meta_cnj, categoria)
+                alvo = METAS_CNJ_ALVOS.get(chave_alvo)
+                
+                if alvo is None:
+                    print(f"⚠️  Alvo não encontrado para {meta_cnj} - {categoria}")
+                    continue
+                
+                # Ajustar cumprimento (máximo 100%)
+                cumprimento_ajustado = min(cumprimento_real, 100.0)
+                
+                # Calcular valor apurado
+                valor_apurado = (cumprimento_ajustado * alvo) / 100.0
+                valores_apurados.append(valor_apurado)
+            
+            # Calcular média aritmética
+            if valores_apurados:
+                cumprimento_final = sum(valores_apurados) / len(valores_apurados)
+                resultado_metas[meta_cnj] = {
+                    'cumprimento': round(cumprimento_final, 2),
+                    'categorias': len(valores_apurados)
+                }
+        
+        return resultado_metas
+        
+    except Exception as e:
+        print(f"❌ Erro ao calcular cumprimento metas CNJ: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
 

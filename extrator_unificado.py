@@ -37,7 +37,7 @@ class Config:
     
     # Jira
     URL_JIRA = "https://tjmg.atlassian.net/"
-    JQL_BASE = "project = ASPLAGMETA ORDER BY created DESC"
+    JQL_BASE = "project = ASPLAGMETA OR4DER BY created DESC"
     ANOS_EXTRACAO = ["2024", "2025", "2026"]
     
     # CNJ
