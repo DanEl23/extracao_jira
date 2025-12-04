@@ -26,9 +26,6 @@ def adicionar_tabela_metas_nacionais(doc):
         print("⚠️  Arquivo 'resultados_cnj.xlsx' não encontrado. Tabela de metas nacionais não será adicionada.")
         return
     
-    # Adicionar parágrafo de espaçamento
-    doc.add_paragraph()
-    
     # Calcular número de linhas (cabeçalho + dados)
     num_linhas_dados = len(df_cnj)
     num_linhas = 1 + num_linhas_dados  # Apenas cabeçalho + dados

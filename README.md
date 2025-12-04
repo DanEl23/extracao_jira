@@ -101,6 +101,14 @@ Arquivos Excel gerados pelas extrações:
 #### 📂 `relatorios_gerados/`
 Documentos Word gerados pelo sistema
 
+#### 📂 `templates/` 🆕
+Templates Word para geração de relatórios:
+- `Sumario_Modelo.docx` - Estrutura hierárquica do relatório
+- `Conteudo_Fonte.docx` - Textos e marcadores de conteúdo
+- `README_TEMPLATES.md` - Guia completo de uso dos templates
+- `LISTA_MARCADORES.md` - Referência de marcadores e variáveis
+- `criar_templates.py` - Script para recriar templates
+
 #### 📂 `TESTE/`
 Arquivos de teste e templates XML
 

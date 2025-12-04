@@ -59,6 +59,12 @@ from .table_superintendencia import (
     adicionar_tabela_indicador
 )
 
+# 🆕 Importar módulos de templates
+from .structure_parser import StructureParser
+from .content_mapper import ContentMapper
+from .template_reader import TemplateReader
+from .document_generator import DocumentGenerator
+
 __all__ = [
     # Config
     'Config',

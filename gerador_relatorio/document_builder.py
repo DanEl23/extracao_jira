@@ -34,7 +34,7 @@ def criar_documento(superintendencia='Presidência'):
     
     # Cabeçalho e rodapé - distâncias reduzidas para ficarem mais próximos das margens
     section_retrato.header_distance = Cm(0.5)
-    section_retrato.footer_distance = Cm(0.5)
+    section_retrato.footer_distance = Cm(1.27)
     
     # === CABEÇALHO DA PRIMEIRA PÁGINA (RETRATO) ===
     header_retrato = section_retrato.header
@@ -107,14 +107,14 @@ def criar_secao_paisagem_inicial(doc, superintendencia='Presidência'):
     section_paisagem.top_margin = Cm(2.5)
     section_paisagem.bottom_margin = Cm(2.5)
     section_paisagem.left_margin = Cm(2.0)
-    section_paisagem.right_margin = Cm(1.5)
+    section_paisagem.right_margin = Cm(2.0)
     
     # Medianiz (gutter)
     section_paisagem.gutter = Cm(0)
     
     # Cabeçalho e rodapé
-    section_paisagem.header_distance = Cm(1.05)
-    section_paisagem.footer_distance = Cm(1.05)
+    section_paisagem.header_distance = Cm(0.5)
+    section_paisagem.footer_distance = Cm(1.27)
     
     # Desvincular cabeçalho da seção anterior
     header = section_paisagem.header

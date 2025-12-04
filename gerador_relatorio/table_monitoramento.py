@@ -84,9 +84,6 @@ def adicionar_tabela_resultado_monitoramento(doc):
     
     print(f"✅ Processadas {total} metas ({len(metas_cnj_cumprimento)} CNJ + {len(metas_tjmg_cumprimento)} TJMG)")
     
-    # Adicionar parágrafo de espaçamento
-    doc.add_paragraph()
-    
     # Criar tabela (linhas: título + 4 faixas + total) x 3 colunas (SEM cabeçalho)
     table = doc.add_table(rows=6, cols=3)
     table.style = 'Table Grid'
@@ -240,6 +237,3 @@ def adicionar_tabela_resultado_monitoramento(doc):
     tblInd.set(qn('w:w'), str(int(1.5 * 567)))  # Converter cm para twips (1cm = 567 twips)
     tblInd.set(qn('w:type'), 'dxa')
     tblPr.append(tblInd)
-    
-    # Adicionar espaçamento após a tabela
-    doc.add_paragraph()

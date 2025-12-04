@@ -27,12 +27,23 @@ def adicionar_tabela_historica(doc):
     primeiro_ano = anos[0]
     ultimo_ano = anos[-1]
     
-    # Adicionar parágrafo de espaçamento
-    doc.add_paragraph()
-    
     # Criar tabela (5 linhas x 6 colunas)
     table = doc.add_table(rows=5, cols=6)
     table.style = 'Table Grid'
+    
+    # Aplicar recuo de 0.5cm para alinhar com textos normais
+    table.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    
+    # Configurar o recuo da tabela usando tblInd
+    tbl = table._element
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = parse_xml('<w:tblPr {}/> '.format(nsdecls('w')))
+        tbl.insert(0, tblPr)
+    
+    # Adicionar tblInd com w:type="dxa" e w:w="283" (0.5cm = 283 twips)
+    tblInd = parse_xml('<w:tblInd {} w:w="283" w:type="dxa"/>'.format(nsdecls('w')))
+    tblPr.append(tblInd)
     
     # === LINHA 1: TÍTULO (MERGED) ===
     titulo_cells = table.rows[0].cells
@@ -147,8 +158,6 @@ def adicionar_tabela_historica(doc):
     nota_run.font.italic = True
     nota_run.font.name = Config.FONTE_PADRAO
     nota.paragraph_format.space_before = Pt(6)
-    
-    doc.add_paragraph()
 
 
 def adicionar_tabela_macrodesafio(doc):
@@ -161,8 +170,6 @@ def adicionar_tabela_macrodesafio(doc):
     historico = dados['historico_recente']
     anos = dados['anos_recentes']
     macrodesafios = dados['macrodesafios']
-    
-    doc.add_paragraph()
     
     num_linhas = 2 + len(macrodesafios) + 1
     num_colunas = 1 + len(anos)
@@ -313,5 +320,3 @@ def adicionar_tabela_macrodesafio(doc):
     
     tblInd = parse_xml(r'<w:tblInd {} w:w="-397" w:type="dxa"/>'.format(nsdecls('w')))
     tblPr.append(tblInd)
-    
-    doc.add_paragraph()
