@@ -29,18 +29,15 @@ from gerador_relatorio import (
 
 def adicionar_cabecalho_relatorio(doc):
     """Adiciona o cabeçalho completo do relatório na primeira página (retrato)"""
-    # Ordem correta das tabelas:
-    # 1. TOTAL DE METAS APROVADAS
+    # Adicionar tabelas históricas
     adicionar_tabela_historica(doc)
-    
-    # 2. TOTAL DE METAS POR MACRODESAFIO
     adicionar_tabela_macrodesafio(doc)
     
-    # 3. RESULTADO DO MONITORAMENTO
-    adicionar_tabela_resultado_monitoramento(doc)
-    
-    # 4. META NACIONAL (por último)
+    # Adicionar tabela de metas nacionais do CNJ
     adicionar_tabela_metas_nacionais(doc)
+    
+    # Adicionar tabela de resultado do monitoramento
+    adicionar_tabela_resultado_monitoramento(doc)
 
 
 def gerar_relatorio():
@@ -130,3 +127,18 @@ if __name__ == "__main__":
         print(f"\n❌ ERRO INESPERADO: {e}")
         import traceback
         traceback.print_exc()
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    nome_arquivo = f"{Config.NOME_RELATORIO}_{timestamp}.docx"
+    caminho_completo = os.path.join(Config.PASTA_SAIDA, nome_arquivo)
+    
+    doc.save(caminho_completo)
+    
+    print("\n" + "="*60)
+    print("✅ RELATÓRIO GERADO COM SUCESSO!")
+    print("="*60)
+    print(f"\n📁 Arquivo: {caminho_completo}")
+    print(f"📊 Total de registros processados: {len(df)}")
+    print(f"🏢 Total de superintendências: {len(grupos)}")
+    
+    input("\nPressione ENTER para sair...")

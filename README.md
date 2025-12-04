@@ -15,8 +15,9 @@ Sistema automatizado para extração de dados de metas (Jira e CNJ) e geração 
    extrator_unificado.py
    └─> exports/teste_integração.xlsx
 
-3. GERAÇÃO DE RELATÓRIO
-   gerador_relatorio.py
+3. GERAÇÃO DE RELATÓRIO (MODULARIZADO)
+   gerador_relatorio_novo.py
+   ├─> Usa módulos de gerador_relatorio/
    └─> relatorios_gerados/Relatorio_Metas_Estrategicas_[timestamp].docx
 ```
 
@@ -31,15 +32,41 @@ Sistema automatizado para extração de dados de metas (Jira e CNJ) e geração 
 - `extrator_unificado.py` - Extrator unificado Jira + CNJ (em desenvolvimento)
 
 #### Geração de Relatórios
-- `gerador_relatorio.py` - Gerador principal de documentos Word
+- **`gerador_relatorio.py`** - 🆕 Gerador principal MODULARIZADO (versão 3.0) ⭐
 - `gerador_relatorio_gui.py` - Interface gráfica alternativa (Tkinter)
 
 #### Dados e Cálculos
-- `base_dados_fixos.py` - Repositório central de dados, mapeamentos e funções de cálculo
+- **`base_dados_fixos.py`** - 🆕 Wrapper compatibilidade (importa do package base_dados/) ⭐
 - `resultado_monitoramento.py` - Classificação de metas por faixas de desempenho
 
 #### Configuração
 - `requirements.txt` - Dependências do projeto
+
+---
+
+### **📦 Package `gerador_relatorio/` (MODULARIZADO)**
+
+Novo package estruturado em módulos especializados:
+
+```
+gerador_relatorio/
+├── __init__.py              # Exporta todas as funções
+├── config.py                # Configurações, constantes, cores
+├── data_loader.py           # Carregamento e agrupamento de dados
+├── formatters.py            # Formatação de valores e cores
+├── styles.py                # Estilos de células, bordas, backgrounds
+├── document_builder.py      # Criação de documento e seções
+├── table_historico.py       # Tabelas de histórico de metas
+├── table_cnj.py             # Tabela de metas nacionais CNJ
+├── table_monitoramento.py   # Tabela de resultado de monitoramento
+└── table_superintendencia.py # Tabelas e seções de superintendências
+```
+
+**Benefícios da Modularização:**
+- ✅ Código organizado por responsabilidade
+- ✅ Fácil manutenção e debugging
+- ✅ Reutilização de componentes
+- ✅ Testes unitários facilitados
 
 ---
 
