@@ -102,11 +102,11 @@ def carregar_dados():
 def carregar_mapeamento_superintendencias():
     """Carrega mapeamento de metas para superintendências"""
     try:
-        from meta_por_superintendencia import META_SUPERINTENDENCIA
+        from base_dados_fixos import META_SUPERINTENDENCIA
         print(f"✅ Mapeamento de superintendências carregado ({len(META_SUPERINTENDENCIA)} metas).")
         return META_SUPERINTENDENCIA
     except ImportError:
-        print("❌ ERRO: Módulo 'meta_por_superintendencia.py' não encontrado!")
+        print("❌ ERRO: Módulo 'base_dados_fixos.py' não encontrado!")
         return {}
     except Exception as e:
         print(f"❌ ERRO ao carregar mapeamento: {e}")
@@ -162,7 +162,7 @@ def agrupar_por_superintendencia_e_macro(df):
     print("📊 Agrupando dados por Superintendência e Macrodesafio...")
     
     # Importar ordem das superintendências do módulo
-    from meta_por_superintendencia import ORDEM_SUPERINTENDENCIAS
+    from base_dados_fixos import ORDEM_SUPERINTENDENCIAS
     
     # Criar coluna auxiliar para ordenação de macrodesafio
     import re
@@ -313,11 +313,11 @@ def criar_documento(superintendencia='Presidência'):
     # Medianiz (gutter)
     section_retrato.gutter = Cm(0)
     
-    # Cabeçalho e rodapé
-    section_retrato.header_distance = Cm(1.5)
-    section_retrato.footer_distance = Cm(1.5)
+    # Cabeçalho e rodapé - distâncias reduzidas para ficarem mais próximos das margens
+    section_retrato.header_distance = Cm(0.5)
+    section_retrato.footer_distance = Cm(0.5)
     
-    # Cabeçalho da primeira página (retrato) - mais simples
+    # === CABEÇALHO DA PRIMEIRA PÁGINA (RETRATO) ===
     header_retrato = section_retrato.header
     
     # Limpar cabeçalho padrão
@@ -325,13 +325,47 @@ def criar_documento(superintendencia='Presidência'):
         p_element = paragraph._element
         p_element.getparent().remove(p_element)
     
-    # Título centralizado
-    titulo_retrato = header_retrato.add_paragraph('Resultados do Monitoramento de Metas Estratégicas 2025')
-    titulo_retrato.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    titulo_retrato.runs[0].font.size = Pt(14)
-    titulo_retrato.runs[0].font.bold = True
-    titulo_retrato.runs[0].font.name = Config.FONTE_PADRAO
-    titulo_retrato.paragraph_format.space_after = Pt(6)
+    # Linha 1: MONITORAMENTO DE METAS ESTRATÉGICAS - 2024 (negrito, tamanho 11, centralizado)
+    p1 = header_retrato.add_paragraph()
+    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run1 = p1.add_run('MONITORAMENTO DE METAS ESTRATÉGICAS - 2024')
+    run1.font.size = Pt(11)
+    run1.font.bold = True
+    run1.font.name = Config.FONTE_PADRAO
+    p1.paragraph_format.space_after = Pt(0)
+    
+    # Linha 2: Relatório Técnico ao Comitê de Governança e Gestão Estratégica (normal, tamanho 11, centralizado)
+    p2 = header_retrato.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run2 = p2.add_run('Relatório Técnico ao Comitê de Governança e Gestão Estratégica')
+    run2.font.size = Pt(11)
+    run2.font.bold = False
+    run2.font.name = Config.FONTE_PADRAO
+    p2.paragraph_format.space_after = Pt(6)
+    
+    # === RODAPÉ DA PRIMEIRA PÁGINA (RETRATO) ===
+    footer_retrato = section_retrato.footer
+    
+    # Limpar rodapé padrão
+    for paragraph in list(footer_retrato.paragraphs):
+        p_element = paragraph._element
+        p_element.getparent().remove(p_element)
+    
+    # Linha 1: Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG
+    p_footer1 = footer_retrato.add_paragraph()
+    p_footer1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run_footer1 = p_footer1.add_run('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
+    run_footer1.font.size = Pt(9)
+    run_footer1.font.name = Config.FONTE_PADRAO
+    p_footer1.paragraph_format.space_after = Pt(0)
+    
+    # Linha 2: Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG
+    p_footer2 = footer_retrato.add_paragraph()
+    p_footer2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run_footer2 = p_footer2.add_run('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+    run_footer2.font.size = Pt(9)
+    run_footer2.font.name = Config.FONTE_PADRAO
+    p_footer2.paragraph_format.space_after = Pt(0)
     
     # === RETORNAR DOCUMENTO (segunda seção paisagem será criada depois) ===
     return doc
@@ -432,7 +466,7 @@ def adicionar_tabela_historica(doc):
     Adiciona tabela histórica de metas aprovadas (4 anos mais recentes).
     Formato conforme imagem de referência com cabeçalho laranja.
     """
-    from meta_por_superintendencia import atualizar_historico_com_ano_atual
+    from base_dados_fixos import atualizar_historico_com_ano_atual
     
     # Obter dados históricos (4 anos mais recentes)
     dados = atualizar_historico_com_ano_atual()
@@ -630,7 +664,7 @@ def adicionar_tabela_macrodesafio(doc):
     Adiciona tabela histórica de metas por macrodesafio (4 anos mais recentes).
     Formato conforme imagem de referência com cabeçalho laranja.
     """
-    from meta_por_superintendencia import atualizar_historico_macrodesafio_com_ano_atual
+    from base_dados_fixos import atualizar_historico_macrodesafio_com_ano_atual
     
     # Obter dados históricos (4 anos mais recentes)
     dados = atualizar_historico_macrodesafio_com_ano_atual()
@@ -735,9 +769,12 @@ def adicionar_tabela_macrodesafio(doc):
             paragraph = row.cells[idx_ano].paragraphs[0]
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             
+            # Negrito se for o último ano (ano mais recente)
+            is_ultimo_ano = (idx_ano == len(anos))
+            
             for run in paragraph.runs:
                 run.font.size = Pt(11)
-                run.font.bold = False
+                run.font.bold = is_ultimo_ano  # Negrito apenas na última coluna
                 run.font.name = Config.FONTE_PADRAO
             
             # Aplicar mesma cor de fundo
@@ -770,7 +807,7 @@ def adicionar_tabela_macrodesafio(doc):
     
     row_total.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     
-    # Valores totais por ano
+    # Valores totais por ano (todos em negrito na linha total)
     for idx_ano, ano in enumerate(anos, start=1):
         row_total.cells[idx_ano].text = str(total_por_ano[ano])
         paragraph = row_total.cells[idx_ano].paragraphs[0]
@@ -778,7 +815,7 @@ def adicionar_tabela_macrodesafio(doc):
         
         for run in paragraph.runs:
             run.font.size = Pt(12)
-            run.font.bold = True
+            run.font.bold = True  # Mantém negrito em toda linha total
             run.font.name = Config.FONTE_PADRAO
             run.font.color.rgb = RGBColor(255, 255, 255)
         
@@ -1079,7 +1116,7 @@ def adicionar_tabela_resultado_monitoramento(doc):
     Mostra distribuição por faixa de cumprimento.
     Une dados de metas institucionais (TJMG) e metas nacionais (CNJ).
     """
-    from meta_por_superintendencia import calcular_cumprimento_metas_cnj
+    from base_dados_fixos import calcular_cumprimento_metas_cnj
     
     print("\n📊 Calculando resultado do monitoramento...")
     

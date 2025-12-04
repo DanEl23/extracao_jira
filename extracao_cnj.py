@@ -423,7 +423,7 @@ class AutomacaoPainelCNJ:
     def salvar_excel(self):
         if self.dados_extraidos:
             df = pd.DataFrame(self.dados_extraidos)
-            arquivo = "resultados_cnj.xlsx"
+            arquivo = "exports/resultados_cnj.xlsx"
             df.to_excel(arquivo, index=False)
             print(f"\n✅ Arquivo salvo: {arquivo}")
         else:

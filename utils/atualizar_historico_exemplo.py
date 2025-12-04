@@ -6,7 +6,7 @@ IMPORTANTE: Este script modifica o código-fonte do módulo!
 Use apenas quando quiser salvar permanentemente os dados do ano atual.
 """
 
-from meta_por_superintendencia import (
+from base_dados_fixos import (
     atualizar_historico_com_ano_atual,
     salvar_historico_atualizado,
     gerar_relatorio_historico

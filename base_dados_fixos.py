@@ -132,6 +132,20 @@ METAS_CNJ_ALVOS = {
     ("CNJ 10", "2º Grau"): 100.0,
 }
 
+# Mapeamento de Metas CNJ para Macrodesafios
+METAS_CNJ_PARA_MACRODESAFIO = {
+    "CNJ 1": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 2": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 3": 5,   # Macro 5 - Prevenção de Litígios e Adoção de Soluções Consensuais
+    "CNJ 4": 4,   # Macro 4 - Integridade, Segurança Institucional e Prevenção à Corrupção
+    "CNJ 5": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 6": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 7": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 8": 3,   # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+    "CNJ 9": 9,   # Macro 9 - Aprimoramento da Gestão Administrativa e da Governança Judiciária
+    "CNJ 10": 3,  # Macro 3 - Agilidade e Produtividade na Prestação Jurisdicional
+}
+
 
 # ============================================
 # ESTATÍSTICAS HISTÓRICAS
@@ -346,6 +360,7 @@ def calcular_metas_por_superintendencia():
 def calcular_metas_atuais_por_macrodesafio():
     """
     Calcula quantas metas existem por macrodesafio no ano atual.
+    Inclui tanto metas institucionais (TJMG) quanto metas nacionais (CNJ).
     Normaliza os macrodesafios pelo número inicial para evitar duplicatas.
     
     Returns:
@@ -353,41 +368,94 @@ def calcular_metas_atuais_por_macrodesafio():
     """
     import re
     
+    contagem = {}
+    
+    # === PROCESSAR METAS INSTITUCIONAIS (TJMG) ===
     try:
         df_tjmg = pd.read_excel('exports/teste_integração.xlsx')
         
         # Verificar se coluna existe
-        if 'Macrodesafio' not in df_tjmg.columns:
-            print("⚠️  Coluna 'Macrodesafio' não encontrada")
-            return {}
+        if 'Macrodesafio' in df_tjmg.columns:
+            # Extrair apenas o número do macrodesafio
+            def extrair_numero(texto):
+                if pd.isna(texto):
+                    return None
+                match = re.match(r'^(\d+)', str(texto).strip())
+                return int(match.group(1)) if match else None
+            
+            # Adicionar coluna com número do macrodesafio
+            df_tjmg['Numero_Macro'] = df_tjmg['Macrodesafio'].apply(extrair_numero)
+            
+            # Remover valores None
+            df_tjmg = df_tjmg[df_tjmg['Numero_Macro'].notna()]
+            
+            # Agrupar por número e contar
+            contagem_por_numero = df_tjmg.groupby('Numero_Macro').size().to_dict()
+            
+            # Para cada número, pegar o primeiro texto encontrado
+            for numero in sorted(contagem_por_numero.keys()):
+                primeiro_texto = df_tjmg[df_tjmg['Numero_Macro'] == numero]['Macrodesafio'].iloc[0]
+                contagem[primeiro_texto] = contagem_por_numero[numero]
+        else:
+            print("⚠️  Coluna 'Macrodesafio' não encontrada em teste_integração.xlsx")
+            
+    except Exception as e:
+        print(f"⚠️  Erro ao processar metas TJMG: {e}")
+    
+    # === PROCESSAR METAS CNJ ===
+    try:
+        df_cnj = pd.read_excel('exports/resultados_cnj.xlsx')
         
-        # Extrair apenas o número do macrodesafio
-        def extrair_numero(texto):
+        # Extrair código da meta (CNJ X)
+        def extrair_codigo_meta(texto):
             if pd.isna(texto):
                 return None
-            match = re.match(r'^(\d+)', str(texto).strip())
-            return int(match.group(1)) if match else None
+            match = re.search(r'Meta\s+(\d+)', str(texto), re.IGNORECASE)
+            if match:
+                return f"CNJ {match.group(1)}"
+            return None
         
-        # Adicionar coluna com número do macrodesafio
-        df_tjmg['Numero_Macro'] = df_tjmg['Macrodesafio'].apply(extrair_numero)
+        df_cnj['Meta_CNJ'] = df_cnj['Meta'].apply(extrair_codigo_meta)
         
-        # Remover valores None
-        df_tjmg = df_tjmg[df_tjmg['Numero_Macro'].notna()]
+        # Remover duplicatas (cada meta pode ter múltiplas categorias)
+        metas_unicas = df_cnj['Meta_CNJ'].dropna().unique()
         
-        # Agrupar por número e contar
-        contagem_por_numero = df_tjmg.groupby('Numero_Macro').size().to_dict()
+        # Contar quantas metas CNJ existem por macrodesafio
+        for meta_cnj in metas_unicas:
+            if meta_cnj in METAS_CNJ_PARA_MACRODESAFIO:
+                numero_macro = METAS_CNJ_PARA_MACRODESAFIO[meta_cnj]
+                
+                # Encontrar o texto do macrodesafio correspondente
+                macro_texto = None
+                for texto_macro in contagem.keys():
+                    if str(texto_macro).startswith(str(numero_macro)):
+                        macro_texto = texto_macro
+                        break
+                
+                # Se não encontrou, criar entrada nova
+                if macro_texto is None:
+                    # Buscar nome completo do macrodesafio na planilha TJMG
+                    try:
+                        df_ref = pd.read_excel('exports/teste_integração.xlsx')
+                        macros_com_numero = df_ref[df_ref['Macrodesafio'].str.startswith(str(numero_macro), na=False)]
+                        if not macros_com_numero.empty:
+                            macro_texto = macros_com_numero['Macrodesafio'].iloc[0]
+                        else:
+                            macro_texto = f"{numero_macro} - Macrodesafio {numero_macro}"
+                    except:
+                        macro_texto = f"{numero_macro} - Macrodesafio {numero_macro}"
+                    
+                    contagem[macro_texto] = 0
+                
+                # Incrementar contador
+                contagem[macro_texto] += 1
         
-        # Para cada número, pegar o primeiro texto encontrado
-        contagem = {}
-        for numero in sorted(contagem_por_numero.keys()):
-            primeiro_texto = df_tjmg[df_tjmg['Numero_Macro'] == numero]['Macrodesafio'].iloc[0]
-            contagem[primeiro_texto] = contagem_por_numero[numero]
-        
-        return contagem
+        print(f"✅ Processadas {len(metas_unicas)} metas CNJ")
         
     except Exception as e:
-        print(f"⚠️  Erro ao calcular metas por macrodesafio: {e}")
-        return {}
+        print(f"⚠️  Erro ao processar metas CNJ: {e}")
+    
+    return contagem
 
 
 def atualizar_historico_macrodesafio_com_ano_atual():
