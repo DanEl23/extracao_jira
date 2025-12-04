@@ -16,7 +16,13 @@ def set_cell_background(cell, rgb_tuple):
 
 
 def set_cell_border(cell, **kwargs):
-    """Define bordas para células da tabela"""
+    """Define bordas para células da tabela
+    
+    Args:
+        cell: Célula da tabela
+        **kwargs: Bordas a serem definidas (top, left, bottom, right)
+                 Pode ser bool (True/False) ou dict com 'color' e 'size'
+    """
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     
@@ -27,12 +33,23 @@ def set_cell_border(cell, **kwargs):
     
     tcBorders = OxmlElement('w:tcBorders')
     for edge in ('top', 'left', 'bottom', 'right'):
-        if kwargs.get(edge):
+        edge_config = kwargs.get(edge)
+        if edge_config:
             edge_el = OxmlElement(f'w:{edge}')
             edge_el.set(qn('w:val'), 'single')
-            edge_el.set(qn('w:sz'), '2')  # 2 = 1/4pt (sz é em oitavos de ponto)
+            
+            # Se for dict, permite customizar cor e tamanho
+            if isinstance(edge_config, dict):
+                size = edge_config.get('size', 2)  # Default 2 = 1/4pt
+                color = edge_config.get('color', Config.CORES['BORDA_TABELA'])
+                edge_el.set(qn('w:sz'), str(size * 8))  # Converter pt para eighths of a point
+                edge_el.set(qn('w:color'), rgb_to_hex(color))
+            else:
+                # Se for bool True, usar valores padrão
+                edge_el.set(qn('w:sz'), '2')  # 2 = 1/4pt (sz é em oitavos de ponto)
+                edge_el.set(qn('w:color'), rgb_to_hex(Config.CORES['BORDA_TABELA']))
+            
             edge_el.set(qn('w:space'), '0')
-            edge_el.set(qn('w:color'), rgb_to_hex(Config.CORES['BORDA_TABELA']))
             tcBorders.append(edge_el)
     
     tcPr.append(tcBorders)

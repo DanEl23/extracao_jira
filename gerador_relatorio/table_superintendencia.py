@@ -142,8 +142,12 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
         # Definir altura da célula: 1,03cm
         titulo_tabela.rows[0].height = Cm(1.03)
         
-        # Remover bordas
-        set_cell_border(titulo_cell, top=False, bottom=False, left=False, right=False)
+        # Adicionar borda laranja na esquerda (1pt de espessura)
+        set_cell_border(titulo_cell, 
+                       top=False, 
+                       bottom=False, 
+                       left={'color': (227, 108, 10), 'size': 1}, 
+                       right=False)
         
         # Definir largura igual à soma das colunas da tabela de dados
         # Largura total: 28,5cm (de -1cm até 27,5cm na régua)
@@ -524,9 +528,9 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
         tblPr = OxmlElement('w:tblPr')
         tbl.insert(0, tblPr)
     
-    # Adicionar recuo negativo de 1cm
+    # Adicionar recuo negativo de 0,7cm
     tblInd = OxmlElement('w:tblInd')
-    tblInd.set(qn('w:w'), '-567')  # -1cm em twips
+    tblInd.set(qn('w:w'), '-397')  # -0,7cm em twips
     tblInd.set(qn('w:type'), 'dxa')
     tblPr.append(tblInd)
     
