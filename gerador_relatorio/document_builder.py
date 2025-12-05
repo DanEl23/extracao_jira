@@ -24,10 +24,10 @@ def criar_documento(superintendencia='Presidência'):
     section_retrato.page_height = Cm(29.7)
     
     # Margens
-    section_retrato.top_margin = Cm(2.5)
-    section_retrato.bottom_margin = Cm(2.5)
-    section_retrato.left_margin = Cm(2.0)
-    section_retrato.right_margin = Cm(2.0)
+    section_retrato.top_margin = Cm(2.0)
+    section_retrato.bottom_margin = Cm(1.5)
+    section_retrato.left_margin = Cm(2.5)
+    section_retrato.right_margin = Cm(2.5)
     
     # Medianiz (gutter)
     section_retrato.gutter = Cm(0)

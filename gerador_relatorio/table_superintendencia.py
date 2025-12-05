@@ -91,21 +91,79 @@ def adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False)
         p_element = paragraph._element
         p_element.getparent().remove(p_element)
     
-    # Primeira linha do rodapé
-    linha1 = footer.add_paragraph('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
-    linha1.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    linha1_format = linha1.runs[0]
-    linha1_format.font.size = Pt(9)
-    linha1_format.font.name = Config.FONTE_PADRAO
-    linha1.paragraph_format.space_after = Pt(0)
+    # Criar tabela de 1 linha x 2 colunas para rodapé compacto
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
     
-    # Segunda linha do rodapé
-    linha2 = footer.add_paragraph('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
-    linha2.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    linha2_format = linha2.runs[0]
-    linha2_format.font.size = Pt(9)
-    linha2_format.font.name = Config.FONTE_PADRAO
-    linha2.paragraph_format.space_after = Pt(0)
+    table = footer.add_table(rows=1, cols=2, width=Cm(25))
+    table.autofit = False
+    
+    # Configurar larguras das colunas (paisagem tem mais espaço)
+    table.columns[0].width = Cm(22)  # ASPLAG e DEPLAG
+    table.columns[1].width = Cm(3)   # Número página
+    
+    # Configurar células
+    row = table.rows[0]
+    
+    # Célula 1: ASPLAG e DEPLAG (esquerda)
+    cell1 = row.cells[0]
+    cell1.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p1 = cell1.paragraphs[0]
+    p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    run1 = p1.add_run('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG / Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+    run1.font.size = Pt(9)
+    run1.font.name = Config.FONTE_PADRAO
+    p1.paragraph_format.space_before = Pt(0)
+    p1.paragraph_format.space_after = Pt(0)
+    
+    # Célula 2: Número da página (direita)
+    cell2 = row.cells[1]
+    cell2.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p2 = cell2.paragraphs[0]
+    p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    run2 = p2.add_run()
+    run2.font.size = Pt(9)
+    run2.font.name = Config.FONTE_PADRAO
+    # Adicionar campo PAGE
+    fldChar1 = OxmlElement('w:fldChar')
+    fldChar1.set(qn('w:fldCharType'), 'begin')
+    instrText = OxmlElement('w:instrText')
+    instrText.set(qn('xml:space'), 'preserve')
+    instrText.text = 'PAGE'
+    fldChar2 = OxmlElement('w:fldChar')
+    fldChar2.set(qn('w:fldCharType'), 'end')
+    run2._r.append(fldChar1)
+    run2._r.append(instrText)
+    run2._r.append(fldChar2)
+    p2.paragraph_format.space_before = Pt(0)
+    p2.paragraph_format.space_after = Pt(0)
+    
+    # Remover bordas laterais e inferior, manter apenas borda superior
+    for cell in row.cells:
+        tcPr = cell._element.get_or_add_tcPr()
+        tcBorders = OxmlElement('w:tcBorders')
+        # Borda superior (linha fina)
+        top = OxmlElement('w:top')
+        top.set(qn('w:val'), 'single')
+        top.set(qn('w:sz'), '4')  # 0.5pt
+        top.set(qn('w:space'), '0')
+        top.set(qn('w:color'), '000000')
+        tcBorders.append(top)
+        # Sem bordas laterais e inferior
+        for border in ['left', 'bottom', 'right']:
+            elem = OxmlElement(f'w:{border}')
+            elem.set(qn('w:val'), 'none')
+            tcBorders.append(elem)
+        tcPr.append(tcBorders)
+        
+        # Remover padding interno para altura mínima
+        tcMar = OxmlElement('w:tcMar')
+        for margin in ['top', 'bottom', 'left', 'right']:
+            mar = OxmlElement(f'w:{margin}')
+            mar.set(qn('w:w'), '0')
+            mar.set(qn('w:type'), 'dxa')
+            tcMar.append(mar)
+        tcPr.append(tcMar)
 
 
 def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=False):
@@ -363,7 +421,7 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
     # Dados
     dados = [
         formatar_valor(row.get(Config.COLUNAS['INDICADOR'], '-')),
-        formatar_valor(row.get(Config.COLUNAS['METAKEY'], '-')),
+        formatar_valor(row.get(Config.COLUNAS['METAKEY'], '-')),  # MetaKey contém o texto completo
         formatar_valor(row.get(Config.COLUNAS['UNIDADE_GESTORA'], '-')),
         formatar_valor(row.get(Config.COLUNAS['POLARIDADE'], '-')),
         formatar_valor(row.get(Config.COLUNAS['VALOR_APURADO'], '-')),

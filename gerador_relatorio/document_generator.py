@@ -5,6 +5,8 @@ Responsável por criar o relatório Word combinando estrutura, conteúdo e dados
 
 from docx.shared import Pt, RGBColor, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from typing import Dict, List, Any
 
 from .config import Config
@@ -51,6 +53,21 @@ class DocumentGenerator:
         primeira_super = list(self.grupos_super.keys())[0] if self.grupos_super else 'Presidência'
         self.doc = criar_documento(primeira_super)
         
+        # Remover cabeçalho e rodapé da primeira seção (sumário)
+        primeira_secao = self.doc.sections[0]
+        
+        # Limpar cabeçalho
+        header = primeira_secao.header
+        for paragraph in list(header.paragraphs):
+            p_element = paragraph._element
+            p_element.getparent().remove(p_element)
+        
+        # Limpar rodapé
+        footer = primeira_secao.footer
+        for paragraph in list(footer.paragraphs):
+            p_element = paragraph._element
+            p_element.getparent().remove(p_element)
+        
         # Adicionar sumário
         print("📑 Gerando sumário...")
         self._adicionar_sumario()
@@ -59,8 +76,8 @@ class DocumentGenerator:
         print("📋 Gerando sumário detalhado das metas...")
         self._adicionar_sumario_metas()
         
-        # Adicionar quebra de página após o sumário
-        self._adicionar_quebra_pagina()
+        # Adicionar quebra de página e nova seção para o conteúdo (com cabeçalho/rodapé)
+        self._adicionar_nova_secao_conteudo()
         
         # Iterar pela estrutura do sumário
         print("\n✍️  Processando estrutura do template...")
@@ -80,12 +97,57 @@ class DocumentGenerator:
             # Buscar e processar conteúdo correspondente
             if chave in self.conteudo:
                 self._processar_conteudo(chave)
+            # Buscar e processar conteúdo correspondente
+            if chave in self.conteudo:
+                self._processar_conteudo(chave)
             else:
                 # Título sem conteúdo (apenas título fica no doc)
                 pass
         
         print("\n✅ Documento gerado com sucesso!")
         return self.doc
+    
+    def _adicionar_numero_pagina(self, paragrafo):
+        """
+        Adiciona numeração de páginas no formato 'Página X de Y'
+        
+        Args:
+            paragrafo: Parágrafo onde adicionar a numeração
+        """
+        run = paragrafo.add_run()
+        
+        # Adicionar texto "Página "
+        fldChar1 = OxmlElement('w:fldChar')
+        fldChar1.set(qn('w:fldCharType'), 'begin')
+        
+        instrText = OxmlElement('w:instrText')
+        instrText.set(qn('xml:space'), 'preserve')
+        instrText.text = 'PAGE'
+        
+        fldChar2 = OxmlElement('w:fldChar')
+        fldChar2.set(qn('w:fldCharType'), 'end')
+        
+        run._r.append(fldChar1)
+        run._r.append(instrText)
+        run._r.append(fldChar2)
+        
+        # Adicionar " de "
+        run.add_text(' de ')
+        
+        # Adicionar total de páginas
+        fldChar3 = OxmlElement('w:fldChar')
+        fldChar3.set(qn('w:fldCharType'), 'begin')
+        
+        instrText2 = OxmlElement('w:instrText')
+        instrText2.set(qn('xml:space'), 'preserve')
+        instrText2.text = 'NUMPAGES'
+        
+        fldChar4 = OxmlElement('w:fldChar')
+        fldChar4.set(qn('w:fldCharType'), 'end')
+        
+        run._r.append(fldChar3)
+        run._r.append(instrText2)
+        run._r.append(fldChar4)
     
     def _adicionar_titulo(self, texto: str, prefixo: str, level: int):
         """
@@ -351,6 +413,127 @@ class DocumentGenerator:
         
         return '???'
     
+    def _adicionar_nova_secao_conteudo(self):
+        """Adiciona nova seção para conteúdo com cabeçalho e rodapé"""
+        from docx.enum.section import WD_SECTION
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        
+        # Criar nova seção em retrato
+        nova_secao = self.doc.add_section(WD_SECTION.NEW_PAGE)
+        
+        # Copiar configurações da primeira seção
+        primeira_secao = self.doc.sections[0]
+        nova_secao.page_width = primeira_secao.page_width
+        nova_secao.page_height = primeira_secao.page_height
+        nova_secao.orientation = primeira_secao.orientation
+        nova_secao.top_margin = primeira_secao.top_margin
+        nova_secao.bottom_margin = primeira_secao.bottom_margin
+        nova_secao.left_margin = primeira_secao.left_margin
+        nova_secao.right_margin = primeira_secao.right_margin
+        nova_secao.header_distance = primeira_secao.header_distance
+        nova_secao.footer_distance = primeira_secao.footer_distance
+        
+        # Desvincular cabeçalho e rodapé
+        nova_secao.header.is_linked_to_previous = False
+        nova_secao.footer.is_linked_to_previous = False
+        
+        # Adicionar cabeçalho
+        header = nova_secao.header
+        
+        # Linha 1: MONITORAMENTO DE METAS ESTRATÉGICAS - 2024
+        p1 = header.add_paragraph()
+        p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run1 = p1.add_run('MONITORAMENTO DE METAS ESTRATÉGICAS - 2024')
+        run1.font.size = Pt(11)
+        run1.font.bold = True
+        run1.font.name = Config.FONTE_PADRAO
+        p1.paragraph_format.space_after = Pt(0)
+        
+        # Linha 2: Relatório Técnico
+        p2 = header.add_paragraph()
+        p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run2 = p2.add_run('Relatório Técnico ao Comitê de Governança e Gestão Estratégica')
+        run2.font.size = Pt(11)
+        run2.font.name = Config.FONTE_PADRAO
+        p2.paragraph_format.space_after = Pt(6)
+        
+        # Adicionar rodapé
+        footer = nova_secao.footer
+        
+        # Criar tabela de 1 linha x 2 colunas para rodapé compacto
+        from docx.oxml.shared import OxmlElement
+        from docx.oxml.ns import qn
+        
+        table = footer.add_table(rows=1, cols=2, width=Cm(21))
+        table.autofit = False
+        
+        # Configurar larguras das colunas
+        table.columns[0].width = Cm(18)  # ASPLAG e DEPLAG
+        table.columns[1].width = Cm(3)   # Número página
+        
+        # Configurar células
+        row = table.rows[0]
+        
+        # Célula 1: ASPLAG e DEPLAG (esquerda)
+        cell1 = row.cells[0]
+        cell1.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p1 = cell1.paragraphs[0]
+        p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        run1 = p1.add_run('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG / Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+        run1.font.size = Pt(9)
+        run1.font.name = Config.FONTE_PADRAO
+        p1.paragraph_format.space_before = Pt(0)
+        p1.paragraph_format.space_after = Pt(0)
+        
+        # Célula 2: Número da página (direita)
+        cell2 = row.cells[1]
+        cell2.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p2 = cell2.paragraphs[0]
+        p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run2 = p2.add_run()
+        run2.font.size = Pt(9)
+        run2.font.name = Config.FONTE_PADRAO
+        # Adicionar campo PAGE
+        fldChar1 = OxmlElement('w:fldChar')
+        fldChar1.set(qn('w:fldCharType'), 'begin')
+        instrText = OxmlElement('w:instrText')
+        instrText.set(qn('xml:space'), 'preserve')
+        instrText.text = 'PAGE'
+        fldChar2 = OxmlElement('w:fldChar')
+        fldChar2.set(qn('w:fldCharType'), 'end')
+        run2._r.append(fldChar1)
+        run2._r.append(instrText)
+        run2._r.append(fldChar2)
+        p2.paragraph_format.space_before = Pt(0)
+        p2.paragraph_format.space_after = Pt(0)
+        
+        # Remover bordas laterais e inferior, manter apenas borda superior
+        for cell in row.cells:
+            tcPr = cell._element.get_or_add_tcPr()
+            tcBorders = OxmlElement('w:tcBorders')
+            # Borda superior (linha fina)
+            top = OxmlElement('w:top')
+            top.set(qn('w:val'), 'single')
+            top.set(qn('w:sz'), '4')  # 0.5pt
+            top.set(qn('w:space'), '0')
+            top.set(qn('w:color'), '000000')
+            tcBorders.append(top)
+            # Sem bordas laterais e inferior
+            for border in ['left', 'bottom', 'right']:
+                elem = OxmlElement(f'w:{border}')
+                elem.set(qn('w:val'), 'none')
+                tcBorders.append(elem)
+            tcPr.append(tcBorders)
+            
+            # Remover padding interno para altura mínima
+            tcMar = OxmlElement('w:tcMar')
+            for margin in ['top', 'bottom', 'left', 'right']:
+                mar = OxmlElement(f'w:{margin}')
+                mar.set(qn('w:w'), '0')
+                mar.set(qn('w:type'), 'dxa')
+                tcMar.append(mar)
+            tcPr.append(tcMar)
+    
     def _adicionar_sumario(self):
         """Adiciona sumário ao documento baseado na estrutura extraída"""
         from docx.oxml.ns import qn
@@ -360,10 +543,11 @@ class DocumentGenerator:
         titulo_sumario = self.doc.add_paragraph()
         titulo_sumario.alignment = WD_ALIGN_PARAGRAPH.CENTER
         run_titulo = titulo_sumario.add_run('SUMÁRIO')
-        run_titulo.font.size = Pt(14)
+        run_titulo.font.size = Pt(16)
         run_titulo.font.bold = True
         run_titulo.font.name = Config.FONTE_PADRAO
-        titulo_sumario.paragraph_format.space_after = Pt(12)
+        titulo_sumario.paragraph_format.space_before = Pt(12)
+        titulo_sumario.paragraph_format.space_after = Pt(0)
         
         # Adicionar itens do sumário
         for item in self.estrutura:
@@ -378,7 +562,7 @@ class DocumentGenerator:
             if level == 1:
                 para.paragraph_format.left_indent = Cm(0)
             elif level == 2:
-                para.paragraph_format.left_indent = Cm(0.5)
+                para.paragraph_format.left_indent = Cm(0.2)
             else:
                 para.paragraph_format.left_indent = Cm(1.0)
             
@@ -388,9 +572,16 @@ class DocumentGenerator:
             run_texto.font.size = Pt(10)
             run_texto.font.name = Config.FONTE_PADRAO
             
-            # Negrito apenas para nível 1
-            if level == 1:
+            # Negrito para níveis 1 e 2
+            if level in [1, 2]:
                 run_texto.font.bold = True
+            
+            # Espaçamento baseado no nível
+            if level == 1:
+                para.paragraph_format.space_before = Pt(6)
+                para.paragraph_format.space_after = Pt(6)
+            elif level == 2:
+                para.paragraph_format.space_after = Pt(2)
             
             # Adicionar TAB com pontos de preenchimento
             # Criar elemento de tabulação
@@ -400,10 +591,10 @@ class DocumentGenerator:
                 tabs = OxmlElement('w:tabs')
                 pPr.append(tabs)
             
-            # Adicionar tab stop na direita (16cm da margem esquerda) com leader dots
+            # Adicionar tab stop próximo da margem direita
             tab = OxmlElement('w:tab')
             tab.set(qn('w:val'), 'right')
-            tab.set(qn('w:pos'), '9070')  # 16cm em twips (16 * 567 = 9072)
+            tab.set(qn('w:pos'), '9072')  # 16cm exatos (16 * 567 = 9072 twips)
             tab.set(qn('w:leader'), 'dot')  # Pontos de preenchimento
             tabs.append(tab)
             
@@ -420,24 +611,28 @@ class DocumentGenerator:
         from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
         import pandas as pd
+        from base_dados import ORDEM_SUPERINTENDENCIAS
         
         # Espaçamento antes do sumário de metas
         self.doc.add_paragraph().paragraph_format.space_after = Pt(12)
         
-        # Iterar por cada superintendência
-        for super_nome in sorted(self.grupos_super.keys()):
-            lista_metas = self.grupos_super[super_nome]
+        # Iterar por cada superintendência na ordem correta
+        for super_nome in ORDEM_SUPERINTENDENCIAS:
+            # grupos_super[super_nome] é uma lista de tuplas (nome_macro, DataFrame)
+            # Precisamos concatenar todos os DataFrames
+            lista_grupos = self.grupos_super.get(super_nome, [])
             
-            if not lista_metas:
+            if not lista_grupos:
                 continue
             
-            # Converter lista para DataFrame se necessário
-            if isinstance(lista_metas, list):
-                df_super = pd.DataFrame(lista_metas)
-            else:
-                df_super = lista_metas
+            # Concatenar todos os DataFrames dos macrodesafios desta superintendência
+            dfs = [df_macro for _, df_macro in lista_grupos]
+            df_super = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
             
-            # Título da superintendência em negrito
+            if df_super.empty:
+                continue
+            
+            # Título da superintendência em negrito (nível 1)
             para_super = self.doc.add_paragraph()
             run_super = para_super.add_run(super_nome.upper())
             run_super.font.size = Pt(10)
@@ -446,16 +641,16 @@ class DocumentGenerator:
             para_super.paragraph_format.space_before = Pt(6)
             para_super.paragraph_format.space_after = Pt(3)
             
-            # Listar cada meta da superintendência
+            # Listar cada meta da superintendência (nível 2)
             for _, row in df_super.iterrows():
-                # Usar diretamente a coluna META que já contém o texto completo
-                texto_meta = row.get('META', 'N/A')
+                # Usar coluna MetaKey que contém o texto completo "TJMG XXX - Descrição"
+                texto_meta = row.get(Config.COLUNAS['METAKEY'], 'N/A')
                 
                 # Criar linha da meta
                 para_meta = self.doc.add_paragraph()
-                para_meta.paragraph_format.left_indent = Cm(0.5)
+                para_meta.paragraph_format.left_indent = Cm(0.2)  # Nível 2 com 0.2cm
                 
-                # Adicionar texto da meta
+                # Adicionar texto da meta (sem negrito)
                 run_meta = para_meta.add_run(texto_meta)
                 run_meta.font.size = Pt(10)
                 run_meta.font.name = Config.FONTE_PADRAO
@@ -469,7 +664,7 @@ class DocumentGenerator:
                 
                 tab = OxmlElement('w:tab')
                 tab.set(qn('w:val'), 'right')
-                tab.set(qn('w:pos'), '9070')
+                tab.set(qn('w:pos'), '9072')  # 16cm exatos (16 * 567 = 9072 twips)
                 tab.set(qn('w:leader'), 'dot')
                 tabs.append(tab)
                 
