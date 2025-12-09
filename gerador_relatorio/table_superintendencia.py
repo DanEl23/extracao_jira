@@ -95,12 +95,23 @@ def adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False)
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     
-    table = footer.add_table(rows=1, cols=2, width=Cm(25))
+    table = footer.add_table(rows=1, cols=2, width=Cm(19))
     table.autofit = False
     
-    # Configurar larguras das colunas (paisagem tem mais espaço)
-    table.columns[0].width = Cm(22)  # ASPLAG e DEPLAG
-    table.columns[1].width = Cm(3)   # Número página
+    # Aplicar recuo negativo para estender além das margens
+    tbl = table._element
+    tblPr = tbl.tblPr
+    if tblPr is None:
+        tblPr = OxmlElement('w:tblPr')
+        tbl.insert(0, tblPr)
+    tblInd = OxmlElement('w:tblInd')
+    tblInd.set(qn('w:w'), '-850')  # -1.5cm em twips (1cm = 567 twips)
+    tblInd.set(qn('w:type'), 'dxa')
+    tblPr.append(tblInd)
+    
+    # Configurar larguras das colunas
+    table.columns[0].width = Cm(17)  # ASPLAG e DEPLAG
+    table.columns[1].width = Cm(2)   # Número página
     
     # Configurar células
     row = table.rows[0]
