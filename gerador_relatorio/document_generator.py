@@ -97,9 +97,6 @@ class DocumentGenerator:
             # Buscar e processar conteúdo correspondente
             if chave in self.conteudo:
                 self._processar_conteudo(chave)
-            # Buscar e processar conteúdo correspondente
-            if chave in self.conteudo:
-                self._processar_conteudo(chave)
             else:
                 # Título sem conteúdo (apenas título fica no doc)
                 pass
@@ -466,6 +463,7 @@ class DocumentGenerator:
         
         table = footer.add_table(rows=1, cols=2, width=Cm(19))
         table.autofit = False
+        table.allow_autofit = False
         
         # Aplicar recuo negativo para estender além das margens
         tbl = table._element
@@ -478,9 +476,14 @@ class DocumentGenerator:
         tblInd.set(qn('w:type'), 'dxa')
         tblPr.append(tblInd)
         
-        # Configurar larguras das colunas
-        table.columns[0].width = Cm(17)  # ASPLAG e DEPLAG
-        table.columns[1].width = Cm(2)   # Número página
+        # Forçar layout fixo
+        tblLayout = OxmlElement('w:tblLayout')
+        tblLayout.set(qn('w:type'), 'fixed')
+        tblPr.append(tblLayout)
+        
+        # Configurar larguras das colunas em twips (1cm = 567 twips)
+        table.columns[0].width = Cm(18)  # ASPLAG e DEPLAG = 10206 twips
+        table.columns[1].width = Cm(1)   # Número página = 567 twips
         
         # Configurar células
         row = table.rows[0]
@@ -488,21 +491,45 @@ class DocumentGenerator:
         # Célula 1: ASPLAG e DEPLAG (esquerda)
         cell1 = row.cells[0]
         cell1.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Definir largura explícita da célula 1: 18cm = 10206 twips
+        tcPr1 = cell1._element.get_or_add_tcPr()
+        tcW1 = OxmlElement('w:tcW')
+        tcW1.set(qn('w:w'), '10206')  # 18cm em twips
+        tcW1.set(qn('w:type'), 'dxa')
+        tcPr1.append(tcW1)
+        # Desabilitar quebra automática
+        noWrap = OxmlElement('w:noWrap')
+        tcPr1.append(noWrap)
+        
         p1 = cell1.paragraphs[0]
         p1.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        run1 = p1.add_run('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG / Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+        run1 = p1.add_run('Assessoria Técnica e Jurídica ao Planejamento e à Gestão Institucional - ASPLAG')
         run1.font.size = Pt(9)
         run1.font.name = Config.FONTE_PADRAO
         p1.paragraph_format.space_before = Pt(0)
         p1.paragraph_format.space_after = Pt(0)
+        # Segunda linha - DEPLAG
+        p1_linha2 = cell1.add_paragraph()
+        p1_linha2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        run1_linha2 = p1_linha2.add_run('Diretoria Executiva de Planejamento Orçamentário e Qualidade na Gestão Institucional - DEPLAG')
+        run1_linha2.font.size = Pt(9)
+        run1_linha2.font.name = Config.FONTE_PADRAO
+        p1_linha2.paragraph_format.space_before = Pt(0)
+        p1_linha2.paragraph_format.space_after = Pt(0)
         
         # Célula 2: Número da página (direita)
         cell2 = row.cells[1]
         cell2.vertical_alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Definir largura explícita da célula 2: 1cm = 567 twips
+        tcPr2 = cell2._element.get_or_add_tcPr()
+        tcW2 = OxmlElement('w:tcW')
+        tcW2.set(qn('w:w'), '567')  # 1cm em twips
+        tcW2.set(qn('w:type'), 'dxa')
+        tcPr2.append(tcW2)
         p2 = cell2.paragraphs[0]
         p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         run2 = p2.add_run()
-        run2.font.size = Pt(9)
+        run2.font.size = Pt(12)  # Aumentado de 9pt para 12pt
         run2.font.name = Config.FONTE_PADRAO
         # Adicionar campo PAGE
         fldChar1 = OxmlElement('w:fldChar')
@@ -519,7 +546,7 @@ class DocumentGenerator:
         p2.paragraph_format.space_after = Pt(0)
         
         # Remover bordas laterais e inferior, manter apenas borda superior
-        for cell in row.cells:
+        for i, cell in enumerate(row.cells):
             tcPr = cell._element.get_or_add_tcPr()
             tcBorders = OxmlElement('w:tcBorders')
             # Borda superior (linha fina)
@@ -529,11 +556,13 @@ class DocumentGenerator:
             top.set(qn('w:space'), '0')
             top.set(qn('w:color'), '000000')
             tcBorders.append(top)
+            
             # Sem bordas laterais e inferior
             for border in ['left', 'bottom', 'right']:
                 elem = OxmlElement(f'w:{border}')
                 elem.set(qn('w:val'), 'none')
                 tcBorders.append(elem)
+                
             tcPr.append(tcBorders)
             
             # Remover padding interno para altura mínima
