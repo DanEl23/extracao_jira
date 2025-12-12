@@ -23,6 +23,11 @@ def adicionar_tabela_resultado_monitoramento(doc):
     
     print("\n📊 Calculando resultado do monitoramento...")
     
+    # Remover espaçamento do parágrafo anterior (se existir)
+    if len(doc.paragraphs) > 0:
+        ultimo_paragrafo = doc.paragraphs[-1]
+        ultimo_paragrafo.paragraph_format.space_after = Pt(0)
+    
     # === CALCULAR CUMPRIMENTO METAS CNJ ===
     metas_cnj_cumprimento = calcular_cumprimento_metas_cnj()
     
@@ -237,3 +242,4 @@ def adicionar_tabela_resultado_monitoramento(doc):
     tblInd.set(qn('w:w'), str(int(1.5 * 567)))  # Converter cm para twips (1cm = 567 twips)
     tblInd.set(qn('w:type'), 'dxa')
     tblPr.append(tblInd)
+

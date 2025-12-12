@@ -67,6 +67,28 @@ class DocumentGenerator:
         for paragraph in list(footer.paragraphs):
             p_element = paragraph._element
             p_element.getparent().remove(p_element)
+
+        # Adicionar campo TOC Word (para teste de referência automática de páginas)
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        toc_paragraph = self.doc.add_paragraph()
+        run = toc_paragraph.add_run()
+        fldChar1 = OxmlElement('w:fldChar')
+        fldChar1.set(qn('w:fldCharType'), 'begin')
+        instrText = OxmlElement('w:instrText')
+        instrText.set(qn('xml:space'), 'preserve')
+        instrText.text = 'TOC \\o "1-3" \\h \\z \\u'
+        fldChar2 = OxmlElement('w:fldChar')
+        fldChar2.set(qn('w:fldCharType'), 'separate')
+        fldChar3 = OxmlElement('w:fldChar')
+        fldChar3.set(qn('w:fldCharType'), 'end')
+        run._r.append(fldChar1)
+        run._r.append(instrText)
+        run._r.append(fldChar2)
+        run._r.append(fldChar3)
+        toc_paragraph.paragraph_format.space_after = Pt(12)
+        toc_paragraph.paragraph_format.space_before = Pt(0)
+        toc_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         
         # Adicionar sumário
         print("📑 Gerando sumário...")
@@ -155,28 +177,35 @@ class DocumentGenerator:
             prefixo: Prefixo numérico (1, 1.1, etc.)
             level: Nível hierárquico
         """
-        para = self.doc.add_paragraph()
-        
-        # Formatar título baseado no level
+        # Definir estilo de título do Word conforme o nível
         if level == 1:
-            # Nível 1: Adicionar espaço após número
+            style = 'Heading 1'
+        elif level == 2:
+            style = 'Heading 2'
+        else:
+            style = 'Heading 3'
+
+        para = self.doc.add_paragraph(style=style)
+
+        # Formatar título baseado no level (mantém visual)
+        if level == 1:
             texto_completo = f"{prefixo}. {texto}"
             run = para.add_run(texto_completo)
             run.font.size = Pt(14)
             run.font.bold = True
-            run.font.color.rgb = RGBColor(227, 108, 10)  # Laranja
-            para.paragraph_format.space_before = Pt(18)
+            run.font.color.rgb = RGBColor(227, 108, 10)
+            para.paragraph_format.space_before = Pt(12)
             para.paragraph_format.space_after = Pt(12)
-            para.paragraph_format.left_indent = Cm(0.5)  # Recuo de 0,5cm
+            para.paragraph_format.left_indent = Cm(0.5)
         elif level == 2:
             texto_completo = f"{prefixo} {texto}"
             run = para.add_run(texto_completo)
-            run.font.size = Pt(14)  # Mesmo tamanho do nível 1
+            run.font.size = Pt(14)
             run.font.bold = True
-            run.font.color.rgb = RGBColor(227, 108, 10)  # Mesma cor laranja dos títulos
+            run.font.color.rgb = RGBColor(227, 108, 10)
             para.paragraph_format.space_before = Pt(12)
-            para.paragraph_format.space_after = Pt(6)
-            para.paragraph_format.left_indent = Cm(0.75)  # Recuo maior que nível 1
+            para.paragraph_format.space_after = Pt(12)
+            para.paragraph_format.left_indent = Cm(0.75)
         else:
             texto_completo = f"{prefixo} {texto}"
             run = para.add_run(texto_completo)
@@ -184,7 +213,7 @@ class DocumentGenerator:
             run.font.bold = True
             para.paragraph_format.space_before = Pt(6)
             para.paragraph_format.space_after = Pt(3)
-        
+
         run.font.name = Config.FONTE_PADRAO
     
     def _processar_conteudo(self, chave: str):
@@ -373,15 +402,20 @@ class DocumentGenerator:
         
         for superintendencia, grupos_macro in self.grupos_super.items():
             print(f"   → {superintendencia}")
-            
             if not primeira_super:
                 adicionar_nova_secao_superintendencia(self.doc, superintendencia, False)
-            
             primeira_secao = True
             for macrodesafio, df_grupo in grupos_macro:
-                adicionar_secao_macrodesafio(self.doc, macrodesafio, df_grupo, primeira_secao)
+                meta_bookmarks = getattr(self, '_meta_bookmarks', None)
+                adicionar_secao_macrodesafio(
+                    self.doc,
+                    macrodesafio,
+                    df_grupo,
+                    primeira_secao,
+                    meta_bookmarks=meta_bookmarks,
+                    superintendencia=superintendencia
+                )
                 primeira_secao = False
-            
             primeira_super = False
     
     def _obter_valor_variavel(self, marcador: str) -> Any:
@@ -658,21 +692,13 @@ class DocumentGenerator:
         
         # Iterar por cada superintendência na ordem correta
         for super_nome in ORDEM_SUPERINTENDENCIAS:
-            # grupos_super[super_nome] é uma lista de tuplas (nome_macro, DataFrame)
-            # Precisamos concatenar todos os DataFrames
             lista_grupos = self.grupos_super.get(super_nome, [])
-            
             if not lista_grupos:
                 continue
-            
-            # Concatenar todos os DataFrames dos macrodesafios desta superintendência
             dfs = [df_macro for _, df_macro in lista_grupos]
             df_super = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
-            
             if df_super.empty:
                 continue
-            
-            # Título da superintendência em negrito (nível 1)
             para_super = self.doc.add_paragraph()
             run_super = para_super.add_run(super_nome.upper())
             run_super.font.size = Pt(10)
@@ -680,38 +706,53 @@ class DocumentGenerator:
             run_super.font.name = Config.FONTE_PADRAO
             para_super.paragraph_format.space_before = Pt(6)
             para_super.paragraph_format.space_after = Pt(3)
-            
-            # Listar cada meta da superintendência (nível 2)
-            for _, row in df_super.iterrows():
-                # Usar coluna MetaKey que contém o texto completo "TJMG XXX - Descrição"
+
+            for global_idx, (idx, row) in enumerate(df_super.iterrows()):
                 texto_meta = row.get(Config.COLUNAS['METAKEY'], 'N/A')
-                
-                # Criar linha da meta
+                # Gerar um nome de bookmark único e válido para cada meta
+                safe_super = ''.join(c if c.isalnum() else '_' for c in str(super_nome))
+                bookmark_name = f"meta_{safe_super}_{global_idx}"
+
+                # Criar linha da meta no sumário
                 para_meta = self.doc.add_paragraph()
-                para_meta.paragraph_format.left_indent = Cm(0.2)  # Nível 2 com 0.2cm
-                
-                # Adicionar texto da meta (sem negrito)
+                para_meta.paragraph_format.left_indent = Cm(0.2)
                 run_meta = para_meta.add_run(texto_meta)
                 run_meta.font.size = Pt(10)
                 run_meta.font.name = Config.FONTE_PADRAO
-                
-                # Configurar tabulação com pontos
+
+                # Tabulação com pontos
                 pPr = para_meta._element.get_or_add_pPr()
                 tabs = pPr.find(qn('w:tabs'))
                 if tabs is None:
                     tabs = OxmlElement('w:tabs')
                     pPr.append(tabs)
-                
                 tab = OxmlElement('w:tab')
                 tab.set(qn('w:val'), 'right')
-                tab.set(qn('w:pos'), '9072')  # 16cm exatos (16 * 567 = 9072 twips)
+                tab.set(qn('w:pos'), '9072')
                 tab.set(qn('w:leader'), 'dot')
                 tabs.append(tab)
-                
-                # Adicionar TAB e número de página
+
                 para_meta.add_run('\t')
-                run_pag = para_meta.add_run('1')  # Placeholder
-                run_pag.font.size = Pt(10)
-                run_pag.font.name = Config.FONTE_PADRAO
-                
+                # Adicionar campo PAGEREF para o bookmark
+                run_pageref = para_meta.add_run()
+                fldChar1 = OxmlElement('w:fldChar')
+                fldChar1.set(qn('w:fldCharType'), 'begin')
+                instrText = OxmlElement('w:instrText')
+                instrText.set(qn('xml:space'), 'preserve')
+                instrText.text = f'PAGEREF {bookmark_name} \\h'
+                fldChar2 = OxmlElement('w:fldChar')
+                fldChar2.set(qn('w:fldCharType'), 'separate')
+                fldChar3 = OxmlElement('w:fldChar')
+                fldChar3.set(qn('w:fldCharType'), 'end')
+                run_pageref._r.append(fldChar1)
+                run_pageref._r.append(instrText)
+                run_pageref._r.append(fldChar2)
+                run_pageref._r.append(fldChar3)
+                run_pageref.font.size = Pt(10)
+                run_pageref.font.name = Config.FONTE_PADRAO
                 para_meta.paragraph_format.space_after = Pt(0)
+
+                # Salvar o bookmark_name para uso posterior
+                if not hasattr(self, '_meta_bookmarks'):
+                    self._meta_bookmarks = {}
+                self._meta_bookmarks.setdefault(super_nome, {})[texto_meta] = bookmark_name

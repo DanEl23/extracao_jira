@@ -209,8 +209,11 @@ def adicionar_nova_secao_superintendencia(doc, superintendencia, primeira=False)
         tcPr.append(tcMar)
 
 
-def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=False):
-    """Adiciona seção de um Macrodesafio"""
+def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=False, meta_bookmarks=None, superintendencia=None):
+    """Adiciona seção de um Macrodesafio
+    meta_bookmarks: dicionário {texto_meta: bookmark_name} para inserir bookmark na meta
+    superintendencia: nome da superintendência (para chave do dicionário)
+    """
     
     # Quebra de página entre macrodesafios (exceto no primeiro)
     if not primeira_secao:
@@ -286,7 +289,11 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
             precisa_cabecalho = False
         
         # Criar tabela para este indicador
-        largura_total = adicionar_tabela_indicador(doc, row, incluir_cabecalho=incluir_subcabecalho)
+        bookmark_name = None
+        if meta_bookmarks and superintendencia:
+            texto_meta = row.get(Config.COLUNAS['METAKEY'], 'N/A')
+            bookmark_name = meta_bookmarks.get(superintendencia, {}).get(texto_meta)
+        largura_total = adicionar_tabela_indicador(doc, row, incluir_cabecalho=incluir_subcabecalho, bookmark_name=bookmark_name)
         incluir_subcabecalho = False  # Próximos não terão subcabeçalho (a menos que haja quebra)
         
         # Adicionar informação complementar se existir
@@ -407,8 +414,11 @@ def adicionar_secao_macrodesafio(doc, macrodesafio, df_grupo, primeira_secao=Fal
             precisa_cabecalho = True
 
 
-def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
-    """Adiciona tabela com um único indicador e retorna a largura total"""
+def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True, bookmark_name=None):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    """Adiciona tabela com um único indicador e retorna a largura total
+    Se bookmark_name for fornecido, insere um bookmark no início da célula da meta."""
     
     # Criar tabela (cabeçalho opcional + 1 linha de dados)
     num_linhas = 2 if incluir_cabecalho else 1
@@ -496,7 +506,6 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
     
     for i, dado in enumerate(dados):
         cell = cells[i]
-        
         # Tratamento especial para coluna Indicador (i == 0)
         if i == 0:
             cell.text = ''
@@ -535,20 +544,27 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
         elif i == 1:
             cell.text = ''
             paragraph = cell.paragraphs[0] if len(cell.paragraphs) > 0 else cell.add_paragraph()
-            
+            # Inserir bookmark se solicitado
+            if bookmark_name:
+                from docx.oxml import OxmlElement
+                from docx.oxml.ns import qn
+                bookmarkStart = OxmlElement('w:bookmarkStart')
+                bookmarkStart.set(qn('w:id'), '1')
+                bookmarkStart.set(qn('w:name'), bookmark_name)
+                bookmarkEnd = OxmlElement('w:bookmarkEnd')
+                bookmarkEnd.set(qn('w:id'), '1')
+                paragraph._p.insert(0, bookmarkStart)
+                paragraph._p.append(bookmarkEnd)
             # Separar código da meta do texto (ex: "TJMG 111 - Texto" ou "TJMG 111")
             match = re.match(r'^([A-Z]+\s+\d+)\s*[-–]?\s*(.*)$', dado)
-            
             if match:
                 codigo = match.group(1)
                 texto_resto = match.group(2)
-                
                 # Adicionar código em negrito
                 run_negrito = paragraph.add_run(codigo)
                 run_negrito.font.bold = True
                 run_negrito.font.size = Pt(Config.TAMANHO_TABELA)
                 run_negrito.font.name = Config.FONTE_PADRAO
-                
                 # Adicionar o resto do texto normalmente
                 if texto_resto:
                     run_normal = paragraph.add_run(' - ' + texto_resto)
@@ -559,7 +575,6 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True):
                 run = paragraph.add_run(dado)
                 run.font.size = Pt(Config.TAMANHO_TABELA)
                 run.font.name = Config.FONTE_PADRAO
-            
             # Alinhamento
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
             paragraph.paragraph_format.space_before = Pt(0)

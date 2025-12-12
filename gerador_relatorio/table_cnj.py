@@ -211,6 +211,11 @@ def adicionar_tabela_metas_nacionais(doc):
     table.columns[1].width = Cm(3.75)  # INSTÂNCIA
     table.columns[2].width = Cm(3.75)  # PERCENTUAL DE CUMPRIMENTO
     
+    # Adicionar parágrafo invisível após a tabela para controlar espaçamento
+    para_after = doc.add_paragraph()
+    para_after.paragraph_format.space_before = Pt(0)
+    para_after.paragraph_format.space_after = Pt(0)
+
     # Garantir larguras também em cada célula
     for row in table.rows:
         row.cells[0].width = Cm(10.5)  # META NACIONAL
