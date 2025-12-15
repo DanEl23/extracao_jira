@@ -9,7 +9,7 @@ class Config:
     # Arquivo de entrada
     ARQUIVO_EXCEL = 'exports/teste_integração.xlsx'
     NOME_ABA = None  # Nome da aba (ou deixe None para a primeira)
-    
+    CAMINHO_IMAGEM_CAPA = 'templates/Capa.jpg'
     # Arquivo de saída
     PASTA_SAIDA = 'relatorios_gerados'
     NOME_RELATORIO = 'Relatorio_Metas_Estrategicas'
