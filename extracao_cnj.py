@@ -128,6 +128,9 @@ class AutomacaoPainelCNJ:
                     except:
                         meta_titulo = texto_completo.split('\n')[0].strip()
 
+                    if str(numero_meta_esperada) == "9":
+                        meta_titulo = meta_titulo.replace(" de 2025", "")
+                        
                     # 2. Extração do Subtítulo (Apenas Metas 2, 6, 7, 8)
                     if str(numero_meta_esperada) in ["2", "6", "7", "8"]:
                         try:
@@ -400,6 +403,44 @@ class AutomacaoPainelCNJ:
         extrair_valor_do_cartao("Violência Doméstica", "Cumprimento", "Total Violência Doméstica")
         extrair_valor_do_cartao("Feminicídio", "Cumprimento", "Total Feminicídio")
 
+# --- NOVA FUNÇÃO: META 9 ---
+    def extrair_kpis_meta_9(self):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 9) ---")
+        # Identifica título e descrição
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="9")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        # Função interna auxiliar para pegar o valor (Reutilizando lógica da Meta 4/7/8)
+        def extrair_valor_do_cartao(label_busca, campo_nome_saida):
+            try:
+                # Tenta encontrar o container que tenha o texto de busca (ex: "Cumprimento")
+                # Estamos procurando um h4 ou text que indique o rótulo e pegando o valor vizinho
+                xpath_valor = f"//*[contains(text(), '{label_busca}')]/following::*[string-length(text()) > 0 and contains(@class, 'value') or contains(@class, 'content')][1]"
+                
+                elementos = self.driver.find_elements(By.XPATH, xpath_valor)
+                if elementos:
+                    valor = elementos[0].text.strip()
+                    print(f"💎 Valor encontrado para '{campo_nome_saida}': {valor}")
+                    self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
+                    return True
+                else:
+                    print(f"⚠️ Valor não encontrado para o rótulo '{label_busca}'")
+                    return False
+            except Exception as e: 
+                print(f"❌ Erro ao ler cartão Meta 9: {e}")
+                return False
+
+        # TENTATIVA 1: Busca Genérica por "Cumprimento" (Padrão da maioria das metas)
+        if not extrair_valor_do_cartao("Cumprimento", "Total Meta 9"):
+            # TENTATIVA 2: Se falhar, tenta pegar apenas o percentual solto na tela
+            try:
+                # Procura qualquer texto que tenha % e seja grande (classe value)
+                xpath_percent = "//*[contains(text(), '%') and (@class='value' or contains(@class, 'label'))]"
+                elem = self.driver.find_element(By.XPATH, xpath_percent)
+                self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total Estimado", elem.text)
+            except:
+                print("❌ Não foi possível extrair dados da Meta 9 pelos métodos padrão.")
+
     # --- FUNÇÃO META 10 ---
     def extrair_kpis_meta_10(self):
         print(f"\n--- Iniciando Extração KPI (Alvo: Meta 10) ---")
@@ -420,6 +461,7 @@ class AutomacaoPainelCNJ:
         extrair_valor_do_cartao("1º Grau", "Cumprimento", "1º Grau")
         extrair_valor_do_cartao("2º Grau", "Cumprimento", "2º Grau")
 
+
     def salvar_excel(self):
         if self.dados_extraidos:
             df = pd.DataFrame(self.dados_extraidos)
@@ -428,6 +470,7 @@ class AutomacaoPainelCNJ:
             print(f"\n✅ Arquivo salvo: {arquivo}")
         else:
             print("\n⚠️ Nenhum dado para salvar.")
+
 
     def executar(self):
         """Fluxo Principal"""
@@ -493,6 +536,13 @@ class AutomacaoPainelCNJ:
             except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
             self.extrair_kpis_meta_8()
         
+        # META 9
+        print("\n=== 🏁 INICIANDO META 9 ===")
+        if self.clicar_elemento_por_texto("Meta 9"):
+            try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+            except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+            self.extrair_kpis_meta_9()
+
         # META 10
         print("\n=== 🏁 INICIANDO META 10 ===")
         if self.clicar_elemento_por_texto("Meta 10"):

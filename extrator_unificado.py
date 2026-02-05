@@ -37,7 +37,7 @@ class Config:
     
     # Jira
     URL_JIRA = "https://tjmg.atlassian.net/"
-    JQL_BASE = "project = ASPLAGMETA OR4DER BY created DESC"
+    JQL_BASE = "project = ASPLAGMETA ORDER BY created DESC"
     ANOS_EXTRACAO = ["2024", "2025", "2026"]
     
     # CNJ
@@ -157,62 +157,73 @@ class ExtratorJira(ExtratorBase):
         time.sleep(3)
     
     def aplicar_filtro_por_ano(self, nome_campo="Ano da Meta", valor_ano="2024"):
-        """Aplica filtro customizado por ano na interface JQL"""
+        """Aplica filtro customizado por ano na interface JQL (novo fluxo Jira simplificado)"""
         print(f"\n⚙️  Aplicando filtro: {nome_campo} = {valor_ano}")
-        
+        print("[DEBUG] Aguardando 3 segundos para garantir carregamento da página...")
+        time.sleep(3)
         try:
-            # 1. Clicar no botão 'Mais filtros'
-            more_filters_button_selector = "button[data-testid='jql-builder-basic.ui.jql-editor.add-filter.more-button']"
+            # 1. Clicar no botão 'More filters'
+            more_filters_button_selector = "button[data-testid='jql-builder-basic.ui.jql-editor.add-filter']"
+            print("[DEBUG] Procurando botão 'More filters'...")
             more_filters_button = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, more_filters_button_selector))
             )
             more_filters_button.click()
-            print("   1. Clicou em 'Mais filtros'")
-            
-            # 2. Digitar o nome do campo
-            search_input_xpath = "//input[@aria-label='Pesquisar mais filtros']"
+            print("   1. Clicou em 'More filters'.")
+            time.sleep(1)
+
+            # 2. Buscar e selecionar o campo do filtro
+            # Corrigido: buscar input pelo aria-label em inglês
+            search_input_xpath = "//input[@aria-label='Search more filters']"
+            print("[DEBUG] Procurando input de busca de filtros (aria-label='Search more filters')...")
             search_input = self.wait.until(
                 EC.presence_of_element_located((By.XPATH, search_input_xpath))
             )
             search_input.send_keys(nome_campo)
+            print(f"   2. Digitou nome do campo: {nome_campo}")
             time.sleep(1)
-            
-            # 3. Selecionar o campo
+
             field_option_xpath = f"//div[@role='option']//div[text()='{nome_campo}']"
+            print(f"[DEBUG] Procurando opção de campo '{nome_campo}'...")
             field_option = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, field_option_xpath))
             )
             field_option.click()
-            print(f"   2. Selecionou o campo '{nome_campo}'")
+            print(f"   3. Selecionou campo '{nome_campo}'.")
             time.sleep(2)
-            
-            # 4. Digitar valor do ano
-            value_input_xpath = f"//input[@aria-label='Pesquisar {nome_campo}']"
+
+            # 3. Digitar valor do ano
+            # Corrigido: buscar input pelo aria-label em inglês
+            value_input_xpath = f"//input[@aria-label='Search {nome_campo}']"
+            print(f"[DEBUG] Procurando input para valor do ano '{valor_ano}' (aria-label='Search {nome_campo}')...")
             value_input = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, value_input_xpath))
             )
             value_input.send_keys(valor_ano)
-            print(f"   3. Digitou '{valor_ano}'")
+            print(f"   4. Digitou valor do ano: {valor_ano}")
             time.sleep(1)
-            
-            # 5. Selecionar opção
-            value_option_xpath = f"//div[@role='listbox']//div[text()='{valor_ano}']"
+
+            # 4. Selecionar opção do ano
+            # Novo seletor: busca qualquer div com role='option' que contenha um div com o texto do ano
+            value_option_xpath = f"//div[@role='option' and .//div[text()='{valor_ano}']]"
+            print(f"[DEBUG] Procurando opção de ano '{valor_ano}' (XPath flexível)...")
             value_option = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, value_option_xpath))
             )
             value_option.click()
-            print(f"   4. Selecionou '{valor_ano}'")
-            
-            # 6. Aguardar carregamento
+            print(f"   5. Selecionou ano '{valor_ano}'.")
+
+            # 5. Aguardar carregamento
+            print("[DEBUG] Aguardando carregamento da lista filtrada...")
             self.wait.until(
                 EC.invisibility_of_element_located((By.CSS_SELECTOR, "[data-testid='issue-navigator.issue-list.content-loading-spinner']"))
             )
-            
             print("   ✅ Filtro aplicado com sucesso!")
+            print("[DEBUG] Filtro de ano aplicado com sucesso.")
             time.sleep(2)
-            
         except Exception as e:
             print(f"❌ Erro ao aplicar filtro: {e}")
+            print("[DEBUG] Exceção capturada em aplicar_filtro_por_ano.")
             raise
     
     def exportar_detalhes_impressao(self):
@@ -654,14 +665,19 @@ class ExtratorCNJ(ExtratorBase):
     
     def adicionar_linha(self, titulo, subtitulo, desc, cat, val):
         """Adiciona registro aos dados extraídos"""
-        print(f"   > Capturado: {cat} → {val}")
+        # Corrige duplicidade: se a categoria está repetida, mantém apenas uma ocorrência
+        if isinstance(cat, str) and len(cat) > 0:
+            # Exemplo: "Turma RecursalTurma Recursal" vira "Turma Recursal"
+            meio = len(cat) // 2
+            if cat[:meio] == cat[meio:] and meio > 0:
+                cat = cat[:meio]
+        print(f"   > Capturado: {cat} 2 {val}")
         self.dados_extraidos.append({
             "Meta": titulo,
             "Subtítulo": subtitulo,
             "Descrição": desc,
             "Categoria": cat,
-            "Resultado": val,
-            "Data": datetime.now().strftime("%Y-%m-%d %H:%M")
+            "Valor": val
         })
     
     def extrair_dados_grafico(self, numero_meta_esperada):
@@ -850,132 +866,101 @@ class ExtratorCNJ(ExtratorBase):
             print("\n⚠️  Nenhum dado para salvar")
     
     def extrair_completo(self):
-        """Modo 3: Extração completa das metas do CNJ"""
+        """Modo 3: Extração completa das metas do CNJ (igual extracao_cnj.py)"""
         print("\n" + "="*60)
         print("🚀 MODO: EXTRAÇÃO CNJ")
         print("="*60 + "\n")
-        
+
         self.criar_pasta_saida()
         self.iniciar_navegador()
-        
+
         try:
             self.acessar_painel()
             self.entrar_no_iframe()
-            
+
             # META 1
-            print("\n" + "="*60)
-            print("📋 META 1")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 1 ===")
             self.aplicar_filtro_powerbi("ramo_justica", "Justiça Estadual")
             time.sleep(2)
-            self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
+            self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
             self.extrair_dados_grafico("1")
-            
+            self.extrair_kpi_meta_1_total()
+
             # META 2
-            print("\n" + "="*60)
-            print("📋 META 2")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 2 ===")
             if self.clicar_elemento_por_texto("Meta 2"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                self.extrair_dados_grafico("2")
-            
+                self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                self.extrair_kpis_meta_2()
+
             # META 3
-            print("\n" + "="*60)
-            print("📋 META 3")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 3 ===")
             if self.clicar_elemento_por_texto("Meta 3"):
-                self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                self.extrair_kpi(3, "Percentual de Cumprimento")
-            
+                self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                self.extrair_kpi_cumprimento(numero_meta="3", kpi_title="Percentual de Cumprimento")
+
             # META 4
-            print("\n" + "="*60)
-            print("📋 META 4")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 4 ===")
             if self.clicar_elemento_por_texto("Meta 4"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
+                self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
                 self.extrair_kpis_meta_4()
-            
+
             # META 5
-            print("\n" + "="*60)
-            print("📋 META 5")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 5 ===")
             if self.clicar_elemento_por_texto("Meta 5"):
                 self.clicar_botao_laranja_estadual(indice_alvo=2)
-                self.aplicar_filtro_powerbi("Tribunal", self.config.TRIBUNAL_CNJ)
-                self.extrair_kpi(5, "Cumprimento Meta 5")
-            
+                self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+                self.extrair_kpi_cumprimento(numero_meta="5", kpi_title="Cumprimento Meta 5")
+
             # META 6
-            print("\n" + "="*60)
-            print("📋 META 6")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 6 ===")
             if self.clicar_elemento_por_texto("Meta 6"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                try:
-                    self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                except:
-                    self.aplicar_filtro_powerbi("Tribunal", self.config.TRIBUNAL_CNJ)
+                try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
                 self.extrair_kpi_meta_6()
-            
+
             # META 7
-            print("\n" + "="*60)
-            print("📋 META 7")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 7 ===")
             if self.clicar_elemento_por_texto("Meta 7"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                try:
-                    self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                except:
-                    self.aplicar_filtro_powerbi("Tribunal", self.config.TRIBUNAL_CNJ)
+                try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
                 self.extrair_kpis_meta_7()
-            
+
             # META 8
-            print("\n" + "="*60)
-            print("📋 META 8")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 8 ===")
             if self.clicar_elemento_por_texto("Meta 8"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                try:
-                    self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                except:
-                    self.aplicar_filtro_powerbi("Tribunal", self.config.TRIBUNAL_CNJ)
+                try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
                 self.extrair_kpis_meta_8()
-            
-            # META 9 (nota: pode não existir em todos os anos)
-            print("\n" + "="*60)
-            print("📋 META 9")
-            print("="*60)
+
+            # META 9
+            print("\n=== 🏁 INICIANDO META 9 ===")
             if self.clicar_elemento_por_texto("Meta 9"):
-                try:
-                    self.clicar_botao_laranja_estadual(indice_alvo=1)
-                    self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                    self.extrair_kpi(9, "Percentual de Cumprimento")
-                except:
-                    print("   ⚠️  Meta 9 não disponível ou erro ao extrair")
-            
+                try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
+                self.extrair_kpis_meta_9()
+
             # META 10
-            print("\n" + "="*60)
-            print("📋 META 10")
-            print("="*60)
+            print("\n=== 🏁 INICIANDO META 10 ===")
             if self.clicar_elemento_por_texto("Meta 10"):
                 self.clicar_botao_laranja_estadual(indice_alvo=1)
-                try:
-                    self.aplicar_filtro_powerbi("sigla_tribunal", self.config.TRIBUNAL_CNJ)
-                except:
-                    self.aplicar_filtro_powerbi("Tribunal", self.config.TRIBUNAL_CNJ)
+                try: self.aplicar_filtro_powerbi("sigla_tribunal", "TJMG")
+                except: self.aplicar_filtro_powerbi("Tribunal", "TJMG")
                 self.extrair_kpis_meta_10()
-            
+
+            print("\n⏸️ Processo finalizado.")
             self.salvar_excel()
-            
-            print("\n✅ EXTRAÇÃO CNJ CONCLUÍDA COM SUCESSO!")
-            print(f"📊 Total de registros coletados: {len(self.dados_extraidos)}")
-            
+            input("\nPressione ENTER para fechar o navegador e encerrar o robô...")
+            self.fechar()
+
         except Exception as e:
             print(f"\n❌ Erro durante execução: {e}")
             traceback.print_exc()
-        finally:
-            input("\n⏸️  Pressione ENTER para fechar o navegador...")
+            input("\nPressione ENTER para fechar o navegador e encerrar o robô...")
             self.fechar()
 
 
