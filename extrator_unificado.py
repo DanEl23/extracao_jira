@@ -1,7 +1,7 @@
 """
 EXTRATOR UNIFICADO DE DADOS - TJMG
-Versão: 2.0
-Integra extração de Jira e CNJ em um único módulo
+Versão: 2.1 (Refatorado)
+Integra extração de Jira e CNJ (Lógica atualizada do extracao_cnj.py)
 
 Modos de Operação:
 1. Jira Simples: Extração única do estado atual
@@ -38,7 +38,7 @@ class Config:
     # Jira
     URL_JIRA = "https://tjmg.atlassian.net/"
     JQL_BASE = "project = ASPLAGMETA ORDER BY created DESC"
-    ANOS_EXTRACAO = ["2024", "2025", "2026"]
+    ANOS_EXTRACAO = ["2022", "2023", "2024", "2025", "2026"]
     
     # CNJ
     URL_CNJ = "https://justica-em-numeros.cnj.jus.br/painel-metas/"
@@ -157,73 +157,51 @@ class ExtratorJira(ExtratorBase):
         time.sleep(3)
     
     def aplicar_filtro_por_ano(self, nome_campo="Ano da Meta", valor_ano="2024"):
-        """Aplica filtro customizado por ano na interface JQL (novo fluxo Jira simplificado)"""
+        """Aplica filtro customizado por ano na interface JQL"""
         print(f"\n⚙️  Aplicando filtro: {nome_campo} = {valor_ano}")
-        print("[DEBUG] Aguardando 3 segundos para garantir carregamento da página...")
         time.sleep(3)
         try:
-            # 1. Clicar no botão 'More filters'
             more_filters_button_selector = "button[data-testid='jql-builder-basic.ui.jql-editor.add-filter']"
-            print("[DEBUG] Procurando botão 'More filters'...")
             more_filters_button = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, more_filters_button_selector))
             )
             more_filters_button.click()
-            print("   1. Clicou em 'More filters'.")
             time.sleep(1)
 
-            # 2. Buscar e selecionar o campo do filtro
-            # Corrigido: buscar input pelo aria-label em inglês
             search_input_xpath = "//input[@aria-label='Search more filters']"
-            print("[DEBUG] Procurando input de busca de filtros (aria-label='Search more filters')...")
             search_input = self.wait.until(
                 EC.presence_of_element_located((By.XPATH, search_input_xpath))
             )
             search_input.send_keys(nome_campo)
-            print(f"   2. Digitou nome do campo: {nome_campo}")
             time.sleep(1)
 
             field_option_xpath = f"//div[@role='option']//div[text()='{nome_campo}']"
-            print(f"[DEBUG] Procurando opção de campo '{nome_campo}'...")
             field_option = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, field_option_xpath))
             )
             field_option.click()
-            print(f"   3. Selecionou campo '{nome_campo}'.")
             time.sleep(2)
 
-            # 3. Digitar valor do ano
-            # Corrigido: buscar input pelo aria-label em inglês
             value_input_xpath = f"//input[@aria-label='Search {nome_campo}']"
-            print(f"[DEBUG] Procurando input para valor do ano '{valor_ano}' (aria-label='Search {nome_campo}')...")
             value_input = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, value_input_xpath))
             )
             value_input.send_keys(valor_ano)
-            print(f"   4. Digitou valor do ano: {valor_ano}")
             time.sleep(1)
 
-            # 4. Selecionar opção do ano
-            # Novo seletor: busca qualquer div com role='option' que contenha um div com o texto do ano
             value_option_xpath = f"//div[@role='option' and .//div[text()='{valor_ano}']]"
-            print(f"[DEBUG] Procurando opção de ano '{valor_ano}' (XPath flexível)...")
             value_option = self.wait.until(
                 EC.element_to_be_clickable((By.XPATH, value_option_xpath))
             )
             value_option.click()
-            print(f"   5. Selecionou ano '{valor_ano}'.")
 
-            # 5. Aguardar carregamento
-            print("[DEBUG] Aguardando carregamento da lista filtrada...")
             self.wait.until(
                 EC.invisibility_of_element_located((By.CSS_SELECTOR, "[data-testid='issue-navigator.issue-list.content-loading-spinner']"))
             )
             print("   ✅ Filtro aplicado com sucesso!")
-            print("[DEBUG] Filtro de ano aplicado com sucesso.")
             time.sleep(2)
         except Exception as e:
             print(f"❌ Erro ao aplicar filtro: {e}")
-            print("[DEBUG] Exceção capturada em aplicar_filtro_por_ano.")
             raise
     
     def exportar_detalhes_impressao(self):
@@ -250,8 +228,12 @@ class ExtratorJira(ExtratorBase):
             print(f"❌ Erro durante a exportação: {e}")
             raise
     
+
     def processar_aba_exportacao(self):
-        """Extrai dados da aba de exportação usando BeautifulSoup"""
+        """
+        Extração Universal com Lógica de Herança.
+        Captura campos em tabelas 'tableBorder' e 'grid', e vincula nomes de metas aos tickets de apuração.
+        """
         janelas = self.driver.window_handles
         if len(janelas) < 2:
             print("❌ Nova aba de exportação não detectada")
@@ -259,142 +241,119 @@ class ExtratorJira(ExtratorBase):
         
         janela_exportacao = [w for w in janelas if w != self.janela_principal][0]
         self.driver.switch_to.window(janela_exportacao)
-        print("\n🔄 Foco mudado para aba de exportação")
+        print("\n🔄 Foco mudado para aba de exportação. Processando conteúdo...")
         
         html_content = self.driver.page_source
         start_time = time.time()
-        print("   Iniciando extração com BeautifulSoup...")
         
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
+            # Localiza os blocos principais de cada ticket
             blocos_tickets = soup.find_all('table', class_='tableBorder')
             num_tickets = len(blocos_tickets)
-            print(f"📊 Encontrados {num_tickets} tickets neste lote")
+            print(f"📊 Encontrados {num_tickets} tickets para processamento.")
             
             for idx, tabela_inicio in enumerate(blocos_tickets):
                 registro = {}
                 
-                # 1. META_ID (Parent Key)
+                # 1. CAPTURA DE IDENTIFICADORES E HERANÇA DO PAI
+                # Extrai a chave do pai (META_ID)
                 parent_key_tag = tabela_inicio.find('a', id='parent_issue_key')
                 registro['META_ID'] = parent_key_tag.get_text(strip=True) if parent_key_tag else ""
                 
-                # 2. Nº_Meta (Parent Summary)
+                # Extrai o resumo do pai (Nome da Meta Principal)
                 parent_summary_tag = tabela_inicio.find('a', id='parent_issue_summary')
-                if parent_summary_tag:
-                    registro['Nº_Meta'] = parent_summary_tag.get_text(strip=True)
+                nome_meta_pai = parent_summary_tag.get_text(strip=True) if parent_summary_tag else ""
+                registro['Nº_Meta'] = nome_meta_pai
                 
-                # 3. Chave e Resumo do ticket atual
+                # 2. TRATAMENTO DO TÍTULO E RESUMO (H3)
                 h3_element = tabela_inicio.find('h3', class_='formtitle')
                 if h3_element:
-                    titulo_completo = h3_element.get_text(strip=True)
-                    resumo_link = h3_element.find('a')
+                    titulo_texto = h3_element.get_text(separator=' ', strip=True)
+                    # Extrai a Chave do ticket atual: ex [ASPLAGMETA-2814]
+                    chave_match = re.search(r'\[([A-Z]+-\d+)\]', titulo_texto)
+                    current_chave = chave_match.group(1) if chave_match else f"TICKET-{idx+1}"
+                    registro['Chave'] = current_chave
                     
-                    if resumo_link:
-                        current_summary = resumo_link.get_text(strip=True)
-                        chave_match = re.search(r'\[([A-Z]+-\d+)\]', titulo_completo)
-                        current_chave = chave_match.group(1) if chave_match else f"TICKET-{len(self.dados_extraidos) + idx + 1}"
-                        
-                        registro['Meta_apuração'] = f"[{current_chave}] {current_summary}"
-                        registro['Chave'] = current_chave
-                        registro['Resumo'] = current_summary
+                    # Extrai o link do resumo
+                    resumo_link = h3_element.find('a')
+                    resumo_original = resumo_link.get_text(strip=True) if resumo_link else ""
+                    
+                    # Se o resumo for genérico ("Apurado no período"), herda o nome da meta do pai
+                    if "Apurado no período" in resumo_original:
+                        registro['Resumo'] = f"Apuração: {nome_meta_pai}"
+                        registro['Apurado no período'] = resumo_original # Mantém o marcador na coluna específica
                     else:
-                        registro['Chave'] = f"TICKET-{len(self.dados_extraidos) + idx + 1}"
-                        registro['Resumo'] = "Resumo não encontrado"
-                else:
-                    registro['Chave'] = f"TICKET-{len(self.dados_extraidos) + idx + 1}"
-                    registro['Resumo'] = "Resumo não encontrado"
-                
-                # 4. Extração de campos customizados (tabelas dinâmicas)
-                tabelas_ticket = []
+                        registro['Resumo'] = resumo_original
+                    
+                    registro['Meta_apuração'] = f"[{current_chave}] {registro['Resumo']}"
+
+                # 3. VARREDURA UNIVERSAL DE TABELAS (tableBorder e grid)
+                # O Valor da Meta (ex: 100) costuma estar em tabelas de classe 'grid'
                 current_element = tabela_inicio
                 while current_element:
                     if current_element.name == 'table':
-                        tabelas_ticket.append(current_element)
+                        for linha in current_element.find_all('tr'):
+                            # Captura tanto células normais (td) quanto cabeçalhos (th)
+                            celulas = linha.find_all(['td', 'th'])
+                            
+                            for c_idx, celula in enumerate(celulas):
+                                b_tag = celula.find('b')
+                                # Se houver um rótulo em negrito e uma célula de valor à direita
+                                if b_tag and (c_idx + 1) < len(celulas):
+                                    rotulo = re.sub(r'\s+', ' ', b_tag.get_text(strip=True).rstrip(':')).strip()
+                                    valor_td = celulas[c_idx + 1]
+                                    
+                                    # Tratamento de datas/tempo via tag <time>
+                                    time_tag = valor_td.find('time')
+                                    if time_tag and time_tag.get('datetime'):
+                                        valor = time_tag['datetime']
+                                    elif rotulo.lower() == 'informação complementar':
+                                        valor = valor_td.decode_contents().strip()
+                                    else:
+                                        valor = valor_td.get_text(separator=' ', strip=True)
+                                    
+                                    if valor and valor.lower() != "desconhecido":
+                                        registro[rotulo] = valor
+                    
+                    # Navega para o próximo elemento, parando antes do próximo ticket (hr class="fullcontent")
                     proximo = current_element.find_next_sibling()
-                    if not proximo:
-                        break
-                    if proximo.name == 'hr' and 'fullcontent' in proximo.get('class', []):
+                    if not proximo or (proximo.name == 'hr' and 'fullcontent' in proximo.get('class', [])):
                         break
                     current_element = proximo
                 
-                for tabela in tabelas_ticket:
-                    for linha in tabela.find_all('tr'):
-                        colunas = linha.find_all('td')
-                        if not colunas:
-                            continue
-                        
-                        i = 0
-                        while i < len(colunas):
-                            label_cell = colunas[i]
-                            b_tag = label_cell.find('b')
-                            if not b_tag:
-                                i += 1
-                                continue
-                            
-                            rotulo_bruto = b_tag.get_text(separator=' ', strip=True).rstrip(':')
-                            rotulo = re.sub(r'\s+', ' ', rotulo_bruto).strip()
-                            if not rotulo or i + 1 >= len(colunas):
-                                i += 1
-                                continue
-                            
-                            valor_td = colunas[i + 1]
-                            valor = valor_td.get_text(separator=' ', strip=True)
-                            
-                            # Tratamento especial para datas
-                            if rotulo.lower() in ['data de apuração', 'data de criação', 'atualizado']:
-                                time_tag = valor_td.find('time')
-                                if time_tag and time_tag.get('datetime'):
-                                    valor = time_tag['datetime']
-                            
-                            # Tratamento para campos HTML
-                            if rotulo.lower() == 'informação complementar' or valor_td.find_all('p'):
-                                valor = valor_td.decode_contents().strip()
-                            
-                            if valor:
-                                registro[rotulo] = valor
-                            
-                            i += 2
-                
-                self.dados_extraidos.append(registro)
-                
-                if (idx + 1) % 100 == 0:
-                    print(f"   Processados {idx+1} tickets...")
+                # Adiciona o ticket ao dataset global se tiver uma chave válida
+                if registro.get('Chave'):
+                    self.dados_extraidos.append(registro)
             
             elapsed = time.time() - start_time
-            print(f"\n⏱️  Tempo: {elapsed:.2f}s ({num_tickets} tickets)")
-            print(f"   Total acumulado: {len(self.dados_extraidos)}")
+            print(f"✅ Extração finalizada em {elapsed:.2f}s.")
             
         except Exception as e:
-            print(f"❌ Erro na extração: {e}")
+            print(f"❌ Erro crítico na extração: {e}")
             traceback.print_exc()
         finally:
             self.driver.close()
             self.driver.switch_to.window(self.janela_principal)
-            self.wait = WebDriverWait(self.driver, self.config.TIMEOUT)
-            print("↩️  Retornando à aba principal")
+            print("↩️  Retornando à aba de controle do Jira.")
             return num_tickets
-    
+        
+
     def montar_dicionario_hierarquico(self):
         """Gera estrutura hierárquica Pai → Filhos usando META_ID"""
         print("\n🧱 Montando dicionário hierárquico...")
-        
         mapa_tickets = {
             registro.get('Chave'): {'Dados': registro, 'Filhos': []}
             for registro in self.dados_extraidos if 'Chave' in registro
         }
-        
         dicionario_final = {}
-        
         for chave, item in mapa_tickets.items():
             registro = item['Dados']
             chave_pai = registro.get('META_ID')
-            
             if chave_pai and chave_pai in mapa_tickets:
                 mapa_tickets[chave_pai]['Filhos'].append(item)
             else:
                 dicionario_final[chave] = item
-        
-        print(f"   ✅ Dicionário montado. Metas Raiz: {len(dicionario_final)}")
         return dicionario_final
     
     def salvar_excel(self, nome_arquivo):
@@ -404,29 +363,18 @@ class ExtratorJira(ExtratorBase):
             return
         
         df = pd.DataFrame(self.dados_extraidos)
-        
-        # Ordenação de colunas - mantém compatibilidade com scripts originais
         colunas_prioritarias = ['META_ID', 'Chave', 'Resumo']
+        if 'Nº_Meta' in df.columns: colunas_prioritarias.append('Nº_Meta')
+        if 'Meta_apuração' in df.columns: colunas_prioritarias.append('Meta_apuração')
         
-        # Adiciona Nº_Meta e Meta_apuração se existirem
-        if 'Nº_Meta' in df.columns:
-            colunas_prioritarias.append('Nº_Meta')
-        if 'Meta_apuração' in df.columns:
-            colunas_prioritarias.append('Meta_apuração')
-        
-        # Restante das colunas em ordem alfabética (como nos scripts originais)
         outras_colunas = sorted([col for col in df.columns if col not in colunas_prioritarias])
         colunas_finais = colunas_prioritarias + outras_colunas
-        
-        # Filtra apenas colunas existentes
         colunas_existentes = [c for c in colunas_finais if c in df.columns]
         df = df[colunas_existentes]
         
         caminho = Path(self.config.PASTA_SAIDA) / nome_arquivo
         df.to_excel(caminho, index=False)
         print(f"\n💾 Excel salvo: {caminho}")
-        print(f"📊 Total de registros: {len(df)}")
-        print(f"📋 Primeiras colunas: {', '.join(df.columns[:5].tolist())}...")
     
     def salvar_json(self, dicionario, nome_arquivo):
         """Salva dicionário hierárquico em JSON"""
@@ -440,23 +388,13 @@ class ExtratorJira(ExtratorBase):
         print("\n" + "="*60)
         print("🚀 MODO: EXTRAÇÃO JIRA SIMPLES")
         print("="*60 + "\n")
-        
         self.criar_pasta_saida()
         self.iniciar_navegador()
-        
         try:
             self.login_manual_e_aguardar()
-            
-            print("\n" + "="*60)
-            print("INICIANDO EXTRAÇÃO")
-            print("="*60)
-            
             self.exportar_detalhes_impressao()
             self.processar_aba_exportacao()
             self.salvar_excel(self.config.ARQUIVO_JIRA_SIMPLES)
-            
-            print("\n✅ EXTRAÇÃO SIMPLES CONCLUÍDA COM SUCESSO!")
-            
         except Exception as e:
             print(f"\n❌ Erro durante execução: {e}")
             traceback.print_exc()
@@ -469,36 +407,23 @@ class ExtratorJira(ExtratorBase):
         print("\n" + "="*60)
         print("🚀 MODO: EXTRAÇÃO JIRA POR ANOS")
         print("="*60 + "\n")
-        
         self.criar_pasta_saida()
         self.iniciar_navegador()
-        
         try:
             self.login_manual_e_aguardar()
-            
             for ano in self.config.ANOS_EXTRACAO:
                 print(f"\n" + "="*60)
                 print(f"📅 EXTRAINDO ANO: {ano}")
                 print("="*60)
-                
                 self.aplicar_filtro_por_ano("Ano da Meta", ano)
                 self.exportar_detalhes_impressao()
                 self.processar_aba_exportacao()
-                
-                # Resetar filtro para próximo ano
-                print("🔁 Resetando filtro...")
                 jql_encoded_base = quote_plus(self.config.JQL_BASE)
                 self.navegar_para_jql(jql_encoded_base)
             
-            # Salvar Excel plano
             self.salvar_excel(self.config.ARQUIVO_JIRA_ANUAL)
-            
-            # Salvar JSON hierárquico
             dicionario = self.montar_dicionario_hierarquico()
             self.salvar_json(dicionario, self.config.ARQUIVO_JIRA_JSON)
-            
-            print("\n✅ EXTRAÇÃO POR ANOS CONCLUÍDA COM SUCESSO!")
-            
         except Exception as e:
             print(f"\n❌ Erro durante execução: {e}")
             traceback.print_exc()
@@ -508,11 +433,11 @@ class ExtratorJira(ExtratorBase):
 
 
 # ============================================
-# EXTRATOR CNJ
+# EXTRATOR CNJ (ATUALIZADO DO extracao_cnj.py)
 # ============================================
 
 class ExtratorCNJ(ExtratorBase):
-    """Extrator especializado para o painel do CNJ"""
+    """Extrator especializado para o painel do CNJ (Lógica atualizada do extracao_cnj.py)"""
     
     def acessar_painel(self):
         """Acessa o painel de metas do CNJ"""
@@ -525,92 +450,81 @@ class ExtratorCNJ(ExtratorBase):
         try:
             iframe = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "iframe")))
             self.driver.switch_to.frame(iframe)
-            print("✅ Entrou no iframe PowerBI")
+            print("✅ Entrou no contexto do Iframe PowerBI")
         except:
-            print("⚠️  Iframe não encontrado (talvez já esteja no contexto)")
-    
+            print("⚠️ Iframe não encontrado (talvez já esteja nele).")
+
     def clicar_elemento_por_texto(self, texto_parcial):
-        """Clica em elemento que contém o texto especificado"""
-        print(f"🔍 Procurando elemento com texto: '{texto_parcial}'...")
+        print(f"Procurando elemento com texto: '{texto_parcial}'...")
         try:
             xpath = f"//*[contains(text(), '{texto_parcial}')]"
             elementos = self.wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
-            elemento_alvo = elementos[-1]
+            elemento_alvo = elementos[-1] 
             
             self.driver.execute_script("arguments[0].scrollIntoView(true);", elemento_alvo)
             time.sleep(0.5)
-            self.driver.execute_script(
-                "arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))",
-                elemento_alvo
-            )
+            self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", elemento_alvo)
             
-            print(f"   ✅ Clique em '{texto_parcial}' realizado")
+            print(f"✅ Clique em '{texto_parcial}' realizado com sucesso!")
             time.sleep(4)
             return True
         except Exception as e:
-            print(f"   ❌ Não foi possível clicar em '{texto_parcial}'")
+            print(f"❌ Não foi possível clicar em '{texto_parcial}'.")
             return False
-    
+
     def clicar_botao_laranja_estadual(self, indice_alvo=0):
-        """Clica em botões laranjas (geralmente para selecionar Justiça Estadual)"""
-        print(f"🔍 Procurando botões laranjas (índice {indice_alvo})...")
+        print(f"Procurando botões laranjas (Alvo: índice {indice_alvo})...")
         try:
             xpath_cor = "//*[local-name()='path' and contains(@fill, 'e1874d')]"
             elementos = self.wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_cor)))
             
             qtd = len(elementos)
-            print(f"   Encontrados {qtd} elementos laranjas")
-            
+            print(f"🔎 Encontrados {qtd} elementos laranjas.")
+
             if qtd > indice_alvo:
                 botao_alvo = elementos[indice_alvo]
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", botao_alvo)
-                self.driver.execute_script(
-                    "arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))",
-                    botao_alvo
-                )
-                print(f"   ✅ Clique no botão laranja (índice {indice_alvo}) realizado")
+                self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", botao_alvo)
+                print(f"✅ Clique no botão Laranja (índice {indice_alvo}) realizado!")
                 time.sleep(4)
                 return True
             else:
-                print(f"   ⚠️  Índice {indice_alvo} fora do alcance (só encontrei {qtd})")
+                print(f"⚠️ ERRO: Índice {indice_alvo} fora do alcance (só encontrei {qtd} elementos).")
                 return False
         except Exception as e:
-            print(f"   ❌ Falha ao processar botões laranjas: {e}")
+            print(f"❌ Falha ao processar botões laranjas: {e}")
             return False
-    
+
     def aplicar_filtro_powerbi(self, nome_interno_filtro, valor_desejado):
-        """Aplica filtro no PowerBI"""
-        print(f"⚙️  Filtrando '{nome_interno_filtro}' = '{valor_desejado}'")
+        print(f"--- Filtrando '{nome_interno_filtro}' para '{valor_desejado}' ---")
         try:
             dropdown_xpath = f"//div[@class='slicer-dropdown-menu' and @aria-label='{nome_interno_filtro}']"
+            # Espera o dropdown estar presente
             dropdown = self.wait.until(EC.presence_of_element_located((By.XPATH, dropdown_xpath)))
             
+            # Scroll to center and wait for clickability
             self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", dropdown)
             self.wait.until(EC.element_to_be_clickable((By.XPATH, dropdown_xpath)))
             time.sleep(1)
             
-            self.driver.execute_script(
-                "arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))",
-                dropdown
-            )
+            # Clica no dropdown para abrir
+            self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", dropdown)
             time.sleep(1.5)
-            
+
+            # Seleciona a opção
             opcao_xpath = f"//div[@class='slicerItemContainer']//span[@title='{valor_desejado}' or text()='{valor_desejado}']"
             opcao = self.wait.until(EC.element_to_be_clickable((By.XPATH, opcao_xpath)))
             self.driver.execute_script("arguments[0].click();", opcao)
-            print(f"   ✅ Opção '{valor_desejado}' selecionada")
+            print(f"✅ Opção '{valor_desejado}' selecionada!")
             
-            self.driver.execute_script(
-                "arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))",
-                dropdown
-            )
+            # Fecha o dropdown
+            self.driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {view: window, bubbles:true, cancelable: true}))", dropdown)
             time.sleep(2)
             
         except Exception as e:
-            print(f"   ❌ Erro ao filtrar {nome_interno_filtro}: {e}")
-    
+            print(f"❌ Erro ao filtrar {nome_interno_filtro}: {e}")
+
     def _identificar_titulo_descricao(self, numero_meta_esperada):
-        """Identifica título, subtítulo e descrição da meta"""
         meta_titulo = f"Meta {numero_meta_esperada}"
         meta_subtitulo = "N/D"
         meta_descricao = "Descrição não encontrada"
@@ -622,71 +536,76 @@ class ExtratorCNJ(ExtratorBase):
                 texto_completo = box.text
                 
                 if f"Meta {numero_meta_esperada}" in texto_completo or f"Meta{numero_meta_esperada}" in texto_completo:
-                    # Extração do título
+                    
+                    # 1. Extração do Título
                     try:
                         xpath_titulo = f".//span[contains(text(), 'Meta {numero_meta_esperada}')]"
                         elem_titulo = box.find_element(By.XPATH, xpath_titulo)
                         meta_titulo = elem_titulo.text.strip()
                     except:
                         meta_titulo = texto_completo.split('\n')[0].strip()
-                    
-                    # Extração do subtítulo (apenas Metas 2, 6, 7, 8)
+
+                    if str(numero_meta_esperada) == "9":
+                        meta_titulo = meta_titulo.replace(" de 2025", "")
+                        
+                    # 2. Extração do Subtítulo (Apenas Metas 2, 6, 7, 8)
                     if str(numero_meta_esperada) in ["2", "6", "7", "8"]:
                         try:
+                            # ESTRATÉGIA A: Busca por TEXTO (Mais seguro contra mudança de cores)
                             xpath_sub_texto = ".//span[contains(text(), 'Identificar e julgar')]"
                             elem_sub = box.find_element(By.XPATH, xpath_sub_texto)
                             meta_subtitulo = elem_sub.text.replace(":", "").strip()
                         except:
                             try:
+                                # ESTRATÉGIA B: Busca por COR (Fallback)
                                 xpath_sub_cor = ".//span[contains(@style, 'rgb(204, 204, 204)') or contains(@style, 'rgb(179, 179, 179)')]"
                                 elem_sub = box.find_element(By.XPATH, xpath_sub_cor)
                                 meta_subtitulo = elem_sub.text.replace(":", "").strip()
                             except:
-                                pass
-                    
-                    # Extração da descrição
+                                pass # Se falhar tudo, mantém N/D
+
+                    # 3. Extração da Descrição (Prioridade: Justiça Estadual)
                     try:
                         xpath_estadual = ".//li[contains(., 'Justiça Estadual')]"
                         elem_estadual = box.find_element(By.XPATH, xpath_estadual)
                         texto_bruto = elem_estadual.text
                         meta_descricao = texto_bruto.replace("Justiça Estadual:", "").replace("Justiça Estadual", "").strip()
                         return meta_titulo, meta_subtitulo, meta_descricao
+                        
                     except:
+                        # Fallback para metas sem lista de justiça estadual
                         linhas = [l for l in texto_completo.split('\n') if len(l) > 10 and "Meta" not in l and l != meta_subtitulo]
                         if linhas:
                             meta_descricao = linhas[0]
                     
                     return meta_titulo, meta_subtitulo, meta_descricao
-        
+                    
         except Exception as e:
-            print(f"   ⚠️  Erro ao ler textos da Meta {numero_meta_esperada}: {e}")
-        
+            print(f"⚠️ Erro ao ler textos da Meta {numero_meta_esperada}: {e}")
+
         return meta_titulo, meta_subtitulo, meta_descricao
-    
+
     def adicionar_linha(self, titulo, subtitulo, desc, cat, val):
-        """Adiciona registro aos dados extraídos"""
-        # Corrige duplicidade: se a categoria está repetida, mantém apenas uma ocorrência
-        if isinstance(cat, str) and len(cat) > 0:
-            # Exemplo: "Turma RecursalTurma Recursal" vira "Turma Recursal"
-            meio = len(cat) // 2
-            if cat[:meio] == cat[meio:] and meio > 0:
-                cat = cat[:meio]
-        print(f"   > Capturado: {cat} 2 {val}")
+        print(f"   > Capturado: {cat} -> {val} (Sub: {subtitulo})")
         self.dados_extraidos.append({
             "Meta": titulo,
             "Subtítulo": subtitulo,
             "Descrição": desc,
             "Categoria": cat,
-            "Valor": val
+            "Resultado": val,
+            "Data": datetime.now().strftime("%Y-%m-%d %H:%M")
         })
-    
-    def extrair_dados_grafico(self, numero_meta_esperada):
+
+    # --- FUNÇÕES DE EXTRAÇÃO ESPECÍFICAS ---
+
+    def extrair_dados_grafico(self, numero_meta_esperada=None):
         """Extrai dados de gráficos (Metas 1 e 2)"""
-        print(f"\n📊 Extraindo gráfico (Meta {numero_meta_esperada})...")
+        print(f"\n--- Iniciando Extração Gráfico (Alvo: Meta {numero_meta_esperada if numero_meta_esperada else 'Qualquer'}) ---")
         
         meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada)
-        print(f"   Meta: {meta_titulo}")
-        
+        print(f"📌 Meta Identificada: {meta_titulo}")
+
+        print("🔍 Localizando gráfico de barras...")
         container = None
         seletores = ["div[aria-label*='por Ramo']", "div[aria-label*='por Tribunal']", "div[aria-label*='Meta']"]
         
@@ -697,11 +616,9 @@ class ExtratorCNJ(ExtratorBase):
                     if el.find_elements(By.CSS_SELECTOR, "g.axis"):
                         container = el
                         break
-                if container:
-                    break
-            except:
-                continue
-        
+                if container: break
+            except: continue
+            
         if container:
             try:
                 categorias = container.find_elements(By.CSS_SELECTOR, "g.axis.y g.tick text")
@@ -710,39 +627,94 @@ class ExtratorCNJ(ExtratorBase):
                 l_cats = [c.get_attribute('textContent').strip() for c in categorias if c.get_attribute('textContent').strip()]
                 l_vals = [v.get_attribute('textContent').strip() for v in valores if v.get_attribute('textContent').strip()]
                 
-                if l_cats and l_vals:
-                    limite = min(len(l_cats), len(l_vals))
+                # Remover duplicação de categorias (ex: "1º Grau1º Grau" -> "1º Grau")
+                l_cats_limpo = []
+                for cat in l_cats:
+                    if len(cat) > 0 and len(cat) % 2 == 0:
+                        metade = len(cat) // 2
+                        primeira_metade = cat[:metade]
+                        segunda_metade = cat[metade:]
+                        if primeira_metade == segunda_metade:
+                            l_cats_limpo.append(primeira_metade)
+                        else:
+                            l_cats_limpo.append(cat)
+                    else:
+                        l_cats_limpo.append(cat)
+
+                if l_cats_limpo and l_vals:
+                    limite = min(len(l_cats_limpo), len(l_vals))
                     for i in range(limite):
-                        self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, l_cats[i], l_vals[i])
-                    print(f"   ✅ Extraídos {limite} registros")
+                        self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, l_cats_limpo[i], l_vals[i])
+                    print(f"✅ Extraídos {limite} registros.")
                 else:
-                    print("   ⚠️  Dados vazios")
+                    print("⚠️ Container achado, mas dados vazios.")
             except:
-                print("   ⚠️  Erro ao ler gráfico")
+                print("⚠️ Erro na leitura interna do gráfico.")
         else:
-            print("   ⚠️  Gráfico não encontrado")
+            print("⚠️ Nenhum gráfico encontrado.")
+
+    def extrair_kpi_meta_1_total(self):
+        print(f"\n--- Iniciando Extração KPI Total (Meta 1) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="1")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        print(f"🔍 Buscando cartão 'Julgar mais processos que os distribuídos'...")
+        try:
+            xpath_card = "//div[@title='Julgar mais processos que os distribuídos']/ancestor::div[contains(@class, 'visualWrapper')]"
+            card = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_card)))
+            valor = card.find_element(By.CSS_SELECTOR, "text.value tspan").text.strip()
+            print(f"💎 Valor encontrado: {valor}")
+            self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total", valor)
+        except Exception as e:
+            print(f"❌ Erro ao extrair KPI Total da Meta 1: {e}")
     
-    def extrair_kpi(self, numero_meta, kpi_title):
-        """Extrai KPI individual (Metas 3, 5)"""
-        print(f"\n💎 Extraindo KPI (Meta {numero_meta})...")
+    def extrair_kpis_meta_2(self):
+        print(f"\n--- Iniciando Extração KPIs Meta 2 ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="2")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(str(numero_meta))
-        print(f"   Meta: {meta_titulo}")
+        instancias_titles = {
+            "1º Grau": "1º Grau",
+            "2º Grau": "2º Grau",
+            "Juizados e Turmas": "Juizados e Turmas",
+            "Processos mais Antigos": "Processos mais Antigos"
+        }
         
+        for titulo_card, instancia in instancias_titles.items():
+            print(f"\n🔍 Buscando card 'Cumprimento' da instância '{titulo_card}'...")
+            try:
+                xpath_wrapper = f"//div[@title='{titulo_card}']/ancestor::div[contains(@class, 'visualWrapper')]"
+                wrapper = self.wait.until(EC.presence_of_element_located((By.XPATH, xpath_wrapper)))
+                try:
+                    cumprimento_xpath = ".//h4[contains(text(), 'Cumprimento')]/following-sibling::p"
+                    valor_elem = wrapper.find_element(By.XPATH, cumprimento_xpath)
+                    valor = valor_elem.text.strip()
+                    print(f"   💎 {instancia} - Cumprimento: {valor}")
+                    self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, instancia, valor)
+                except Exception as e:
+                    print(f"   ⚠️ Erro ao extrair Cumprimento: {e}")
+            except Exception as e:
+                print(f"❌ Erro ao processar instância '{titulo_card}': {e}")
+    
+    def extrair_kpi_cumprimento(self, numero_meta, kpi_title):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta {numero_meta}) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada=str(numero_meta))
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        print(f"🔍 Buscando cartão '{kpi_title}'...")
         try:
             xpath_card = f"//div[@title='{kpi_title}']/ancestor::div[contains(@class, 'visualWrapper')]"
             card = self.driver.find_element(By.XPATH, xpath_card)
             valor = card.find_element(By.CSS_SELECTOR, "text.value").text.strip()
-            print(f"   Valor: {valor}")
+            print(f"💎 Valor encontrado: {valor}")
             self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total", valor)
         except Exception as e:
-            print(f"   ❌ Erro ao extrair KPI: {e}")
-    
+            print(f"❌ Erro ao extrair KPI da Meta {numero_meta} (Título: {kpi_title}): {e}")
+
     def extrair_kpis_meta_4(self):
-        """Extrai KPIs da Meta 4 (múltiplos cartões)"""
-        print(f"\n💎 Extraindo KPI (Meta 4)...")
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao("4")
-        print(f"   Meta: {meta_titulo}")
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 4) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="4")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
         def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
             try:
@@ -753,18 +725,17 @@ class ExtratorCNJ(ExtratorBase):
                 if valor:
                     self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
                     return True
-            except:
-                return False
-        
-        extrair_valor_do_cartao("Meta 4", "Cumprimento", "Total Real")
-        extrair_valor_do_cartao("Meta 4 Improb. Administrativa", "Cumprimento", "Total Submeta")
-    
+            except: return False
+
+        extrair_valor_do_cartao("Meta 4", "Cumprimento", "Crimes contra a administração pública")
+        extrair_valor_do_cartao("Meta 4 Improb. Administrativa", "Cumprimento", "Improbidade administrativa")
+
     def extrair_kpi_meta_6(self):
-        """Extrai KPI da Meta 6 (background SVG)"""
-        print(f"\n💎 Extraindo KPI (Meta 6)...")
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao("6")
-        print(f"   Meta: {meta_titulo}")
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 6) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="6")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
+        print("🔍 Buscando cartão pelo background SVG...")
         try:
             xpath_bg = "//*[local-name()='path' and @data-sub-selection-display-name='Card_Background_Color']"
             backgrounds = self.wait.until(EC.presence_of_all_elements_located((By.XPATH, xpath_bg)))
@@ -774,28 +745,23 @@ class ExtratorCNJ(ExtratorBase):
                     container = bg.find_element(By.XPATH, "./ancestor::visual-modern[1]")
                     texto_container = container.text
                     if "Cumprimento" in texto_container:
-                        try:
-                            valor_encontrado = container.find_element(By.CSS_SELECTOR, "p.content").text.strip()
-                        except:
-                            valor_encontrado = container.find_element(By.CSS_SELECTOR, "text.value").text.strip()
-                        if valor_encontrado:
-                            break
-                except:
-                    continue
+                        try: valor_encontrado = container.find_element(By.CSS_SELECTOR, "p.content").text.strip()
+                        except: valor_encontrado = container.find_element(By.CSS_SELECTOR, "text.value").text.strip()
+                        if valor_encontrado: break
+                except: continue
             
             if valor_encontrado:
-                print(f"   Valor: {valor_encontrado}")
+                print(f"💎 Valor encontrado: {valor_encontrado}")
                 self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total", valor_encontrado)
             else:
-                print("   ❌ Valor não encontrado")
+                print("❌ Erro: Cartão 'Cumprimento' não encontrado ou valor vazio.")
         except Exception as e:
-            print(f"   ❌ Erro ao extrair Meta 6: {e}")
-    
+            print(f"❌ Erro grave ao extrair Meta 6: {e}")
+
     def extrair_kpis_meta_7(self):
-        """Extrai KPIs da Meta 7 (Indígenas e Quilombola)"""
-        print(f"\n💎 Extraindo KPI (Meta 7)...")
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao("7")
-        print(f"   Meta: {meta_titulo}")
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 7) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="7")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
         def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
             try:
@@ -806,17 +772,15 @@ class ExtratorCNJ(ExtratorBase):
                 if valor:
                     self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
                     return True
-            except:
-                return False
-        
+            except: return False
+
         extrair_valor_do_cartao("Meta 7 Indígenas", "Cumprimento", "Total Indígenas")
         extrair_valor_do_cartao("Meta 7 Quilombola", "Cumprimento", "Total Quilombola")
-    
+
     def extrair_kpis_meta_8(self):
-        """Extrai KPIs da Meta 8 (Violência Doméstica e Feminicídio)"""
-        print(f"\n💎 Extraindo KPI (Meta 8)...")
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao("8")
-        print(f"   Meta: {meta_titulo}")
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 8) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="8")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
         def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
             try:
@@ -827,17 +791,44 @@ class ExtratorCNJ(ExtratorBase):
                 if valor:
                     self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
                     return True
-            except:
-                return False
-        
+            except: return False
+
         extrair_valor_do_cartao("Violência Doméstica", "Cumprimento", "Total Violência Doméstica")
         extrair_valor_do_cartao("Feminicídio", "Cumprimento", "Total Feminicídio")
-    
+
+    def extrair_kpis_meta_9(self):
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 9) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="9")
+        print(f"📌 Meta Identificada: {meta_titulo}")
+        
+        def extrair_valor_do_cartao(label_busca, campo_nome_saida):
+            try:
+                xpath_valor = f"//*[contains(text(), '{label_busca}')]/following::*[string-length(text()) > 0 and contains(@class, 'value') or contains(@class, 'content')][1]"
+                elementos = self.driver.find_elements(By.XPATH, xpath_valor)
+                if elementos:
+                    valor = elementos[0].text.strip()
+                    print(f"💎 Valor encontrado para '{campo_nome_saida}': {valor}")
+                    self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
+                    return True
+                else:
+                    print(f"⚠️ Valor não encontrado para o rótulo '{label_busca}'")
+                    return False
+            except Exception as e: 
+                print(f"❌ Erro ao ler cartão Meta 9: {e}")
+                return False
+
+        if not extrair_valor_do_cartao("Cumprimento", "Total Meta 9"):
+            try:
+                xpath_percent = "//*[contains(text(), '%') and (@class='value' or contains(@class, 'label'))]"
+                elem = self.driver.find_element(By.XPATH, xpath_percent)
+                self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, "Total Estimado", elem.text)
+            except:
+                print("❌ Não foi possível extrair dados da Meta 9 pelos métodos padrão.")
+
     def extrair_kpis_meta_10(self):
-        """Extrai KPIs da Meta 10 (1º e 2º Grau)"""
-        print(f"\n💎 Extraindo KPI (Meta 10)...")
-        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao("10")
-        print(f"   Meta: {meta_titulo}")
+        print(f"\n--- Iniciando Extração KPI (Alvo: Meta 10) ---")
+        meta_titulo, meta_subtitulo, meta_descricao = self._identificar_titulo_descricao(numero_meta_esperada="10")
+        print(f"📌 Meta Identificada: {meta_titulo}")
         
         def extrair_valor_do_cartao(container_title, label_nome, campo_nome_saida):
             try:
@@ -848,12 +839,11 @@ class ExtratorCNJ(ExtratorBase):
                 if valor:
                     self.adicionar_linha(meta_titulo, meta_subtitulo, meta_descricao, campo_nome_saida, valor)
                     return True
-            except:
-                return False
-        
-        extrair_valor_do_cartao("1º Grau", "Cumprimento", "Total 1º Grau")
-        extrair_valor_do_cartao("2º Grau", "Cumprimento", "Total 2º Grau")
-    
+            except: return False
+
+        extrair_valor_do_cartao("1º Grau", "Cumprimento", "1º Grau")
+        extrair_valor_do_cartao("2º Grau", "Cumprimento", "2º Grau")
+
     def salvar_excel(self):
         """Salva dados extraídos em Excel"""
         if self.dados_extraidos:
@@ -866,7 +856,7 @@ class ExtratorCNJ(ExtratorBase):
             print("\n⚠️  Nenhum dado para salvar")
     
     def extrair_completo(self):
-        """Modo 3: Extração completa das metas do CNJ (igual extracao_cnj.py)"""
+        """Modo 3: Extração completa das metas do CNJ"""
         print("\n" + "="*60)
         print("🚀 MODO: EXTRAÇÃO CNJ")
         print("="*60 + "\n")
@@ -996,7 +986,6 @@ Exemplos de uso:
         """
     )
     
-    # Argumento posicional para anos (mais simples)
     parser.add_argument(
         'anos',
         nargs='*',
