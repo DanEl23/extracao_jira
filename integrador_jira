@@ -1,0 +1,81 @@
+import pandas as pd
+import os
+from extrator_unificado import ExtratorJira, Config
+from urllib.parse import quote_plus
+
+# Importa as funções de tratamento (baseadas no tratamento_2.ipynb)
+# Certifique-se de que base_dados_fixos.py está no diretório
+try:
+    from base_dados_fixos import META_SUPERINTENDENCIA
+except ImportError:
+    META_SUPERINTENDENCIA = {}
+
+def aplicar_tratamento_final(df_consolidado):
+    """
+    Aplica a lógica do tratamento_2.ipynb e mapeamentos institucionais.
+    """
+    df = df_consolidado.copy()
+    
+    # Remove duplicatas baseadas na Chave do Ticket para evitar sobreposição
+    # entre extração simples e anual
+    df = df.drop_duplicates(subset=['Chave'], keep='last')
+    
+    # Lógica de extração de código de meta (ex: TJMG 111)
+    def obter_codigo(texto):
+        import re
+        match = re.match(r'^([A-Z]+\s+\d+)', str(texto).strip())
+        return match.group(1) if match else None
+
+    col_id = 'Nº_Meta' if 'Nº_Meta' in df.columns else 'Resumo'
+    df['Cod_Meta'] = df[col_id].apply(obter_codigo)
+    
+    # Mapeia a Superintendência usando o dicionário oficial
+    df['Superintendência'] = df['Cod_Meta'].map(
+        lambda x: META_SUPERINTENDENCIA.get(x, 'SEM CLASSIFICAÇÃO').upper()
+    )
+    
+    return df
+
+def executar_integracao():
+    cfg = Config()
+    extrator = ExtratorJira(cfg)
+    
+    try:
+        extrator.iniciar_navegador()
+        extrator.login_manual_e_aguardar()
+        
+        # --- PARTE 1: Extração Simples (Estado Atual) ---
+        print("🔍 Realizando Extração Simples...")
+        extrator.exportar_detalhes_impressao()
+        extrator.processar_aba_exportacao()
+        
+        # Resetar para a JQL base antes da próxima etapa
+        extrator.navegar_para_jql(quote_plus(cfg.JQL_BASE))
+        
+        # --- PARTE 2: Extração Anual (Histórico) ---
+        anos_alvo = ["2022", "2023", "2024", "2025"] # Defina os anos necessários
+        for ano in anos_alvo:
+            print(f"📅 Coletando dados anuais: {ano}")
+            extrator.aplicar_filtro_por_ano("Ano da Meta", ano)
+            extrator.exportar_detalhes_impressao()
+            extrator.processar_aba_exportacao()
+            extrator.navegar_para_jql(quote_plus(cfg.JQL_BASE))
+
+        # --- PARTE 3: Consolidação e Tratamento ---
+        print("🛠️ Consolidando e adaptando dados...")
+        df_bruto = pd.DataFrame(extrator.dados_extraidos)
+        df_adaptado = aplicar_tratamento_final(df_bruto)
+        
+        # Salva o resultado final pronto para o gerador de relatórios
+        caminho_final = os.path.join(cfg.PASTA_SAIDA, "dados_exportados_jira_adaptado.xlsx")
+        df_adaptado.to_excel(caminho_final, index=False)
+        
+        print(f"✅ Processo concluído! Arquivo adaptado gerado em: {caminho_final}")
+        
+    except Exception as e:
+        print(f"❌ Erro durante a integração: {e}")
+    finally:
+        extrator.fechar()
+
+if __name__ == "__main__":
+    executar_integracao()
