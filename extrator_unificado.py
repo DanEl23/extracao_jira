@@ -38,7 +38,7 @@ class Config:
     # Jira
     URL_JIRA = "https://tjmg.atlassian.net/"
     JQL_BASE = "project = ASPLAGMETA ORDER BY created DESC"
-    ANOS_EXTRACAO = ["2022", "2023", "2024", "2025", "2026"]
+    ANOS_EXTRACAO = ["2023", "2024", "2025", "2026"]
     
     # CNJ
     URL_CNJ = "https://justica-em-numeros.cnj.jus.br/painel-metas/"
@@ -205,29 +205,42 @@ class ExtratorJira(ExtratorBase):
             raise
     
     def exportar_detalhes_impressao(self):
-        """Abre o menu de exportação e seleciona 'Detalhes de impressão'"""
-        print("\n⚙️  Iniciando exportação...")
+        """Abre o menu '...', clica em 'Export' e seleciona 'Detalhes de impressão'"""
+        print("\n⚙️  Iniciando fluxo de exportação (Novo Layout - Meatball Menu)...")
         
         try:
+            # 1. Clicar no menu de três pontos "..." (Meatball Menu)
+            meatball_menu_selector = "button[data-testid='issue-navigator-action-meatball-menu.ui.menu-trigger']"
+            meatball_menu = self.wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, meatball_menu_selector))
+            )
+            meatball_menu.click()
+            print("   ✅ Menu '...' clicado.")
+            time.sleep(1.5) # Pausa para renderização do menu suspenso
+
+            # 2. Clicar no botão 'Export' dentro do menu aberto
             export_button_selector = "button[data-testid='issue-navigator-action-export-issues.ui.filter-button--trigger']"
             export_button = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, export_button_selector))
             )
             export_button.click()
-            time.sleep(1)
-            
-            print_details_link_xpath = "//a[@data-vc='link-item' and .//span[text()='Detalhes de impressão']]"
-            print_details_link = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, print_details_link_xpath))
+            print("   ✅ Opção 'Export' clicada.")
+            time.sleep(1.5)
+
+            # 3. Clicar em 'Detalhes de impressão'
+            # Usamos XPATH para localizar o texto exato fornecido no seu HTML
+            details_print_xpath = "//a[@role='menuitem' and .//div[text()='Detalhes de impressão']]"
+            details_print_link = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, details_print_xpath))
             )
-            print_details_link.click()
-            print("   ✅ 'Detalhes de impressão' clicado. Aguardando nova aba...")
-            time.sleep(3)
+            details_print_link.click()
+            
+            print("   ✅ 'Detalhes de impressão' selecionado. Aguardando nova aba...")
+            time.sleep(3) 
             
         except Exception as e:
-            print(f"❌ Erro durante a exportação: {e}")
-            raise
-    
+            print(f"❌ Erro durante o novo fluxo de exportação: {e}")
+            raise 
 
     def processar_aba_exportacao(self):
         """
