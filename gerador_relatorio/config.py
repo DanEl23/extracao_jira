@@ -7,7 +7,7 @@ class Config:
     """Configurações do relatório"""
     
     # Arquivo de entrada
-    ARQUIVO_EXCEL = 'exports/teste_integração.xlsx'
+    ARQUIVO_EXCEL = 'teste_integração.xlsx'
     NOME_ABA = None  # Nome da aba (ou deixe None para a primeira)
     CAMINHO_IMAGEM_CAPA = 'templates/Capa.jpg'
     # Arquivo de saída

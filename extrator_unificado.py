@@ -315,6 +315,8 @@ class ExtratorJira(ExtratorBase):
                                 # Se houver um rótulo em negrito e uma célula de valor à direita
                                 if b_tag and (c_idx + 1) < len(celulas):
                                     rotulo = re.sub(r'\s+', ' ', b_tag.get_text(strip=True).rstrip(':')).strip()
+                                    if rotulo in ['Chave', 'Resumo', 'Tipo']:
+                                        continue # Pula para não sobrescrever a identidade do ticket
                                     valor_td = celulas[c_idx + 1]
                                     
                                     # Tratamento de datas/tempo via tag <time>
