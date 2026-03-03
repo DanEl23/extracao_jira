@@ -482,27 +482,44 @@ def adicionar_tabela_indicador(doc, row, incluir_cabecalho=True, bookmark_name=N
         formatar_valor(row.get(Config.COLUNAS['INICIATIVA'], '-'))
     ]
     
-    # Determinar cor do indicador visual baseado no atingimento da meta
-    valor_apurado = row.get(Config.COLUNAS['VALOR_APURADO'], None)
-    valor_meta = row.get(Config.COLUNAS['VALOR_META'], None)
+# --- INÍCIO DA LÓGICA CORRIGIDA ---
     
-    # Verde se atingiu a meta, vermelho caso contrário
-    cor_indicador = RGBColor(0, 255, 0)  # Verde (padrão)
-    if pd.notna(valor_apurado) and pd.notna(valor_meta):
+    # 1. Busca os valores brutos e a polaridade
+    val_apurado_raw = row.get(Config.COLUNAS['VALOR_APURADO'], None)
+    val_meta_raw = row.get(Config.COLUNAS['VALOR_META'], None)
+    polaridade = str(row.get(Config.COLUNAS['POLARIDADE'], 'Maior – melhor'))
+
+    # 2. Função interna para limpeza rigorosa dos dados
+    def limpar_para_float(v):
+        if pd.isna(v) or str(v).strip() in ['', '-']:
+            return None
         try:
-            # Converter valor apurado (pode estar como string com vírgula)
-            if isinstance(valor_apurado, str):
-                val_apurado_float = float(valor_apurado.replace('.', '').replace(',', '.'))
-            else:
-                val_apurado_float = float(valor_apurado)
-            
-            # Converter valor da meta
-            val_meta_float = float(valor_meta)
-            
-            if val_apurado_float < val_meta_float:
-                cor_indicador = RGBColor(255, 0, 0)  # Vermelho
-        except (ValueError, TypeError):
-            pass  # Mantém verde se não conseguir converter
+            # Remove ponto de milhar, troca vírgula por ponto e remove %
+            v_limpo = str(v).replace('.', '').replace(',', '.').replace('%', '').strip()
+            return float(v_limpo)
+        except:
+            return None
+
+    val_apurado_f = limpar_para_float(val_apurado_raw)
+    val_meta_f = limpar_para_float(val_meta_raw)
+
+    # 3. Define a cor baseada na polaridade e no atingimento
+    # Usando o Verde solicitado (0, 255, 0) como padrão
+    cor_indicador = RGBColor(0, 255, 0) 
+
+    if val_apurado_f is not None and val_meta_f is not None:
+        if "Menor" in polaridade:
+            # Meta de REDUÇÃO (ex: diminuir acervo): falha se o apurado for MAIOR que a meta
+            if val_apurado_f > val_meta_f:
+                cor_indicador = RGBColor(255, 0, 0) # Vermelho
+        else:
+            # Meta de ALCANCE (padrão): falha se o apurado for MENOR que a meta
+            if val_apurado_f < val_meta_f:
+                cor_indicador = RGBColor(255, 0, 0) # Vermelho
+    else:
+        # Se os dados estiverem ausentes ou inválidos, define cinza para sinalizar falta de informação
+        cor_indicador = RGBColor(128, 128, 128) 
+
     
     for i, dado in enumerate(dados):
         cell = cells[i]
