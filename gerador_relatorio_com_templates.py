@@ -31,6 +31,38 @@ TEMPLATE_DIR = Path(__file__).parent / 'templates'
 SUMARIO_PATH = TEMPLATE_DIR / 'Sumario_Modelo.docx'
 CONTEUDO_PATH = TEMPLATE_DIR / 'Conteudo_Fonte.docx'
 
+def calcular_cor_status(valor_apurado, valor_meta, polaridade="Maior – melhor"):
+    """
+    Decide a cor do círculo (verde, amarelo, vermelho ou cinza) 
+    baseado no cumprimento da meta.
+    """
+    try:
+        # Função para limpar as strings formatadas (ex: "55.266" -> 55266.0)
+        def limpar(v):
+            if not v or str(v).lower() == 'nan' or str(v).strip() == "": 
+                return 0.0
+            # Remove ponto de milhar, troca vírgula por ponto e remove %
+            return float(str(v).replace('.', '').replace(',', '.').replace('%', '').strip())
+
+        v_apurado = limpar(valor_apurado)
+        v_meta = limpar(valor_meta)
+        
+        if v_meta <= 0:
+            return "cinza.png"
+
+        percentual = (v_apurado / v_meta) * 100
+        
+        # Ajuste para metas de polaridade inversa (ex: reduzir gastos)
+        if "Menor" in str(polaridade):
+            percentual = (v_meta / v_apurado * 100) if v_apurado > 0 else 0
+        
+        if percentual >= 100:
+            return "verde.png"
+        else:
+            return "vermelho.png"
+    except:
+        return "cinza.png"
+
 
 def calcular_variaveis(df, grupos_super) -> dict:
     """
@@ -84,6 +116,31 @@ def calcular_variaveis(df, grupos_super) -> dict:
         'var_total_superintendencias': total_superintendencias,
         'var_ano_atual': ano_atual
     }
+
+def processar_status_visual(valor_apurado, valor_meta):
+    """
+    Converte os valores formatados para cálculo e define a imagem do círculo.
+    """
+    try:
+        # Limpeza para cálculo: remove ponto de milhar, troca vírgula por ponto e remove %
+        def limpar(v):
+            if not v or v == "" or str(v).lower() == 'nan': return 0.0
+            return float(str(v).replace('.', '').replace(',', '.').replace('%', '').strip())
+
+        v_apurado = limpar(valor_apurado)
+        v_meta = limpar(valor_meta)
+        
+        if v_meta <= 0: return "cinza.png", 0
+        
+        percentual = (v_apurado / v_meta) * 100
+        
+        # Definição das cores (Regra de negócio TJMG)
+        if percentual >= 100:
+            return "verde.png", percentual
+        else:
+            return "vermelho.png", percentual
+    except:
+        return "cinza.png", 0
 
 
 def gerar_relatorio_com_templates():
@@ -168,6 +225,17 @@ def gerar_relatorio_com_templates():
     print("\n" + "="*70)
     print("FASE 4: GERAÇÃO DO DOCUMENTO")
     print("="*70 + "\n")
+    
+    # ADICIONE ESTA LINHA AQUI:
+    # Ela vai criar uma nova coluna no seu df chamada 'Imagem_Status' 
+    # com o nome do arquivo da cor correta para cada meta.
+    df['Imagem_Status'] = df.apply(
+        lambda row: calcular_cor_status(
+            row.get('Valor Apurado'), 
+            row.get('Valor da Meta'), 
+            row.get('Polaridade', 'Maior – melhor')
+        ), axis=1
+    )
     
     try:
         generator = DocumentGenerator(template_data, df, grupos_super, variaveis)
